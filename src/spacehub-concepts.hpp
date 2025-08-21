@@ -26,7 +26,8 @@ License
 
 #define COMPILER_VERSION 201703L
 
-#if __cplusplus > COMPILER_VERSION
+// #if __cplusplus > COMPILER_VERSION
+#if false
 
 #include <concepts>
 #include <type_traits>
