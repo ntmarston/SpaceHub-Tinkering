@@ -117,6 +117,24 @@ def get_ecc(data, i, j):
         ecc.append(e)
     return ecc
 
+def get_ecc_scalar(data, i, j):
+    mi = get_tot_mass(data, i)
+    mj = get_tot_mass(data, j)
+    dx, dy, dz = distance(data, 'p', i, j)
+    dvx, dvy, dvz = distance(data, 'v', i, j)
+
+    ecc = []
+    for t in range(0, len(dx)):
+        e = calc_ecc(mi + mj, dx[t], dy[t], dz[t], dvx[t], dvy[t], dvz[t])
+        ecc.append(e)
+
+    ecc_scalar = []
+    for v in ecc:
+        #print(f"v0 {v[0]} v1 {v[1]} v2 {v[2]} -> {np.sqrt(v[0]**2 +v[1]**2 + v[2]**2)}")
+        ecc_scalar.append(np.sqrt(v[0]**2 +v[1]**2 + v[2]**2))
+
+    return ecc_scalar
+
 def get_sma(data, i, j):
     mi = get_tot_mass(data, i)
     mj = get_tot_mass(data, j)
@@ -136,14 +154,24 @@ def get_L(data, i, j):
     dx, dy, dz = distance(data, 'p', i, j)
     dvx, dvy, dvz = distance(data, 'v', i, j)
 
-    Ls = []
+    Lx, Ly, Lz = [], [], []
     for t in range(0, len(dx)):
-        L = calc_L(mi, mj, dx[t], dy[t], dz[t], dvx[t], dvy[t], dvz[t])
-        Ls.append(L)
+        Lxi, Lyi, Lzi = calc_L(mi, mj, dx[t], dy[t], dz[t], dvx[t], dvy[t], dvz[t])
+        Lx.append(Lxi)
+        Ly.append(Lyi)
+        Lz.append(Lzi)
 
-    return Ls
+    return Lx, Ly, Lz
 
 def load_spacehub_data(filename):
     df = pd.read_csv("tutorial/hierarchical.txt")
     add_norms(df)
     return df
+
+
+def get_orbper(data, i, j):
+    #todo
+    return  
+    """mi = get_tot_mass(data, i)
+    mj = get_tot_mass(data, j)
+    mu = mi+mj #G=1"""
