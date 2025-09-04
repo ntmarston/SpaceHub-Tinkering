@@ -101,6 +101,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <cstdint>
 #include <initializer_list>
 #include <iterator>
 #include <memory>

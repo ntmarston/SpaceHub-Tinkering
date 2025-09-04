@@ -21,11 +21,11 @@ int main(int argc, char **argv) {
 
     Solver solver{0, sun, jup, sat, ura, nep};  // first parameter t_start = 0;
 
-    Solver::RunArgs args;
+    Solver::RunArgs args; //object to store arguments/conditions under which the simulations are run
 
-    args.add_stop_condition(1000 * unit::year);
+    args.add_stop_condition(1000 * unit::year); //Store one such argument
 
-    solver.run(args);
+    solver.run(args); //run the solver with the args
 
     print(std::cout, "first run without any output complete!\n");
 
