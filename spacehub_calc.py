@@ -65,7 +65,7 @@ def distance(data, key, i, j):
         zdist.append(zi.iloc[t] - zj.iloc[t])
     return xdist, ydist, zdist
 
-#Getter/Modifier functions
+#-----------Getter/Modifier functions----------
 def get_tot_mass(data, tup):
     #get total mass of the system
     if type(tup) is int:
@@ -105,6 +105,23 @@ def add_norms(data):
         vz = data['vz']
         data['v'] = calc_norm(vx, vy, vz)
 
+def get_L(data, i, j):
+    mi = get_tot_mass(data, i)
+    mj = get_tot_mass(data, j)
+    dx, dy, dz = distance(data, 'p', i, j)
+    dvx, dvy, dvz = distance(data, 'v', i, j)
+
+    Lx, Ly, Lz = [], [], []
+    for t in range(0, len(dx)):
+        Lxi, Lyi, Lzi = calc_L(mi, mj, dx[t], dy[t], dz[t], dvx[t], dvy[t], dvz[t])
+        Lx.append(Lxi)
+        Ly.append(Lyi)
+        Lz.append(Lzi)
+
+    return Lx, Ly, Lz
+
+#---Keplerian orbital elements---
+# Size and Shape
 def get_ecc(data, i, j):
     mi = get_tot_mass(data, i)
     mj = get_tot_mass(data, j)
@@ -148,30 +165,45 @@ def get_sma(data, i, j):
 
     return smas
 
-def get_L(data, i, j):
-    mi = get_tot_mass(data, i)
-    mj = get_tot_mass(data, j)
-    dx, dy, dz = distance(data, 'p', i, j)
-    dvx, dvy, dvz = distance(data, 'v', i, j)
+def get_periapsis():
+    return
 
-    Lx, Ly, Lz = [], [], []
-    for t in range(0, len(dx)):
-        Lxi, Lyi, Lzi = calc_L(mi, mj, dx[t], dy[t], dz[t], dvx[t], dvy[t], dvz[t])
-        Lx.append(Lxi)
-        Ly.append(Lyi)
-        Lz.append(Lzi)
+def get_apoapsis():
+    return
 
-    return Lx, Ly, Lz
+#Orientation elements
+def get_inclination():
+    return
 
+def get_longitude_of_ascending_node():
+    return
+
+def get_longitude_of_periapsis():
+    return
+
+def get_argument_of_periapsis():
+    return
+
+
+def get_true_anom():
+    return
+
+#Epoch elements
+
+def get_true_anomaly():
+    return
+
+def get_mean_anomaly():
+    #could swap for eccentric anomaly if it makes more sense
+    return
+
+
+
+
+
+# Load DefaultWriter output
 def load_spacehub_data(filename):
-    df = pd.read_csv("tutorial/hierarchical.txt")
+    df = pd.read_csv(filename)
     add_norms(df)
     return df
 
-
-def get_orbper(data, i, j):
-    #todo
-    return  
-    """mi = get_tot_mass(data, i)
-    mj = get_tot_mass(data, j)
-    mu = mi+mj #G=1"""
