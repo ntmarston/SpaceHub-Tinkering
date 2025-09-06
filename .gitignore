@@ -5,3 +5,4 @@ build
 docs/html/
 docs/xml/
 cmake-build-debug
+tutorial/
