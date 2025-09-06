@@ -18,7 +18,7 @@ int main(int argc, char** argv) {
 
 
     //Elliptic parameters: M1, M2, initial: semimajor axis, eccentricity, inclination, longitude of ascending node, argument of periapsis, true anomaly
-    auto orb = orbit::Elliptic(p1.mass, p2.mass, 5_AU, 0.1, 45_deg, 270_deg, 90_deg, 0_deg);
+    auto orb = orbit::Elliptic(p1.mass, p2.mass, 5_AU, 0.3, 45_deg, 60_deg, 70_deg, 270_deg);
     //a=5AU, e = 0.1, i=45deg, \Omega=270deg, \omega = 90deg nu = 0deg
     orbit::move_particles(orb, p2);
 
