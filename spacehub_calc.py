@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 import numbers
+from matplotlib import pyplot as plt
+
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -27,6 +29,7 @@ class TwoBodyOrbit:
     inclination_rad = None
     inclination_deg = None
 
+
     LongitudeAscendingNode = None
     LongitudeAscendingNode_deg = None
     sinOmega = None
@@ -34,13 +37,15 @@ class TwoBodyOrbit:
 
     true_anomaly_rad = None
     true_anomaly_deg = None
+    eccentric_anomaly_rad = None
+    eccentric_anomaly_deg = None
     sinf = None
     cosf = None
 
     argument_of_periapsis_rad = None
     argument_of_periapsis_deg = None
 
-
+    time_of_pericenter_passage = None
     #Setters and Update methods
     
     def set_data(self, value):
@@ -209,10 +214,14 @@ class TwoBodyOrbit:
             cosines.append(hy / (h[t]*np.sin(incl[t])))
 
             Omega_t = np.arcsin(hx / (h[t]*np.sin(incl[t])))
+            if np.isnan(Omega_t):
+                Omega_t = - np.arccos(hy / (h[t]*np.sin(incl[t]))) #negative sign is a hotfix
+                
             if Omega_t < 0:
                 Omega_t = 2*np.pi + Omega_t
             Omegas.append(Omega_t)
             
+
 
         #checkpoint
         for t in range(0, self.npoints):
@@ -242,15 +251,21 @@ class TwoBodyOrbit:
             mager = mag(e) * mag(r)
             rdotv = scalar_product_xyz(r, v)
             cosft = edotr/mager
+            if cosft > 1: #Added because precision in spacehub sometimes yields cosf ~1+1e-7 which causes numpy to crash
+                cosft = 1.0
+
             cosf.append(cosft)
+
             if rdotv > 0:
-                f.append(np.arccos(cosft))
-                fdeg.append(np.rad2deg(np.arccos(cosft)))
+                ft = np.arccos(cosft)
             else:
-                f.append(2*np.pi - np.arccos(cosft))
-                fdeg.append(np.rad2deg(2*np.pi - np.arccos(cosft)))
+                ft = 2*np.pi - np.arccos(cosft)
+            
+            
             sinf.append(np.sqrt(1-cosft**2))
-        
+            fdeg.append(np.rad2deg(ft))
+            f.append(ft)
+
         self.true_anomaly_rad = f
         self.true_anomaly_deg = fdeg
         self.sinf = sinf
@@ -278,7 +293,54 @@ class TwoBodyOrbit:
         self.argument_of_periapsis_rad = peri
         self.argument_of_periapsis_deg = perideg
 
+    def set_eccentric_anomaly(self):
+        #Eq. 2.42 Murray-Dermott
+        vvec = self.V_vec
+        rvec = self.R_vec
+        r_list = self.magR
+        e_list = self.eccentricity
+        a_list = self.semiMajorAxis
+        eccentric_anomaly_rad = []
+        eccentric_anomaly_deg = []
+        for t in range(0, self.npoints):
+            rv = [rvec[0][t], rvec[1][t], rvec[2][t]]
+            vv = [vvec[0][t], vvec[1][t], vvec[2][t]]
+            rdotv = scalar_product_xyz(rv, vv)
+            r = r_list[t]
+            e = e_list[t]
+            a = a_list[t]
+            arg = (1/e)*(-r/a+1)
+            if rdotv > 0:
+                E = np.arccos(arg)
+            else:
+                E = 2*np.pi - np.arccos(arg)
+            eccentric_anomaly_rad.append(E)
+            eccentric_anomaly_deg.append(np.rad2deg(E))
+            
 
+        self.eccentric_anomaly_rad = eccentric_anomaly_rad
+        self.eccentric_anomaly_deg = eccentric_anomaly_deg
+
+    def set_time_of_pericenter_passage(self):
+        Gvalue = 1
+        time = self.time
+        eccentricity = self.eccentricity
+        eccentric_anomaly = self.eccentric_anomaly_rad
+        semiMajor = self.semiMajorAxis
+        mi = get_tot_mass(self.data, self.i)
+        mj = get_tot_mass(self.data, self.j)
+        mu = (mi+mj) #* G.value
+        taus = []
+        for p in range(0, self.npoints):
+            t = time[p]
+            E = eccentric_anomaly[p]
+            e = eccentricity[p]
+            a = semiMajor[p]
+            tau = t - (E - e*np.sin(E))/np.sqrt(mu * a**(-3))
+            taus.append(tau)
+        
+        self.time_of_pericenter_passage = taus
+    
     def __init__(self, filename, i, j):
         self.data = load_spacehub_data(filename)
         self.i = i
@@ -306,10 +368,91 @@ class TwoBodyOrbit:
         self.set_true_anomaly()
         #solve argument of periapsis
         self.set_argument_of_periapsis()
+        #solve eccentric anomaly
+        self.set_eccentric_anomaly()
+        #solve time of pericenter passage
+        self.set_time_of_pericenter_passage()
 
 
-        
+    def __str__(self):
+        outstr = ""
+        outstr += (f"Initial (t=0) Conditions:" + "\n"
+                   + f"a: {self.semiMajorAxis[0]}AU" + "\n"
+                   + f"e: {self.eccentricity[0]}" + "\n"
+                   + f"i: {self.inclination_deg[0]}deg" + "\n" 
+                   + f"Longtiude of Ascending Node: {self.LongitudeAscendingNode_deg[0]}deg" + "\n"
+                   + f"Argument of Periapsis: {self.argument_of_periapsis_deg[0]}deg" + "\n" 
+                   + f"True Anomaly: {self.true_anomaly_deg[0]}deg" + "\n"
+                   + f"Orbital Separation: {self.magR[0]}" + "\n")
+        return outstr
 
+
+    def plot_orbit_3panel(self):
+        df, i, j = self.data, self.i, self.j
+        fig = plt.figure(figsize=(15, 5))
+        ax0 = fig.add_subplot(131, projection='3d')
+        ax1 = fig.add_subplot(132)
+        ax2 = fig.add_subplot(133)
+        ax0.plot([0,1],[0],[0])
+        ax0.plot([0],[0,1],[0])
+        ax0.plot([0],[0],[0,1])
+        ax0.scatter(df[df["id"]==j]["px"],df[df["id"]==j]["py"],df[df["id"]==j]["pz"], s=0.3, c='red', zorder=2)
+        ax0.scatter(df[df["id"]==i]["px"],df[df["id"]==i]["py"],df[df["id"]==i]["pz"], s=1, c='blue', zorder=1)
+        ax0.set_xlim(-8, 8)
+        ax0.set_ylim(-8, 8)
+        ax1.scatter(df[df["id"]==i]["px"], df[df["id"]==i]["py"], s=1, c='blue', zorder=1)
+        ax1.scatter(df[df["id"]==j]["px"], df[df["id"]==j]["py"], s=0.3, c='red', zorder=2)
+        ax1.grid(visible=True, zorder=-1)
+
+        ax2.scatter(df[df["id"]==j]["px"], df[df["id"]==j]["pz"], s=0.3, c='red', zorder=2)
+        ax2.scatter(df[df["id"]==i]["px"], df[df["id"]==i]["pz"], s=1, c='blue', zorder=1)
+        ax2.grid(visible=True, zorder=-1)
+
+        return fig, [ax0, ax1, ax2]
+    
+    def plot_keplerian_evolution_basic(self, xlim = []):
+        #e, a, i, Omega, f, omega
+        if len(xlim) < 2:
+            xlim = [0, max(self.time)]
+
+        fig, axes = plt.subplots(2,3, figsize=(15, 10))
+        axs = axes.flatten()
+        axs[0].plot(self.time, self.eccentricity)
+        axs[0].set_ylim(-0.1, 1)
+        axs[0].set_ylabel("Eccentricity")
+        axs[0].set_xlim(xlim)
+
+        axs[1].plot(self.time, self.inclination_deg)
+        axs[1].set_xlim(xlim)
+        axs[1].set_ylim(0, 360)
+        axs[1].set_ylabel(r"Inclination $i$ (deg)")
+
+        axs[2].plot(self.time, self.magR)
+        axs[2].set_xlim(xlim)
+        axs[2].set_title("R (AU)")
+        axs[2].set_ylim(0, 10)
+        axs[2].set_ylabel(r"Separation $||R||$ ($AU$)")
+
+        axs[3].plot(self.time, self.LongitudeAscendingNode_deg)
+        axs[3].set_title("")
+        axs[3].set_xlim(xlim)
+        axs[3].set_ylim(0, 360)
+        axs[3].set_ylabel(r"Longitude of Ascending Node $\Omega$ (deg)")
+
+
+        axs[4].plot(self.time, self.true_anomaly_deg)
+        axs[4].set_xlim(xlim)
+        axs[4].set_ylim(0, 360)
+        axs[4].set_ylabel(r"True Anomaly $f$ (deg)")
+
+        axs[5].plot(self.time, self.argument_of_periapsis_deg)
+        axs[5].set_xlim(xlim)
+        axs[5].set_ylim(0, 360)
+        axs[5].set_ylabel(r"Argument of Periapsis $\omega$ (deg)")
+
+        for ax in axs:
+            ax.set_xlabel("$yr (2\pi)^{-1}$")
+        return fig, axs
 
 #-----Helper/Standalone Functions Below-----
 #Calc functions
@@ -498,162 +641,12 @@ def get_L(data, i, j):
 
 
 
-#---Keplerian orbital elements---
-# Size and Shape
-def get_ecc(data, i, j):
-    mi = get_tot_mass(data, i)
-    mj = get_tot_mass(data, j)
-    dx, dy, dz = distance(data, 'p', i, j)
-    dvx, dvy, dvz = distance(data, 'v', i, j)
-
-    ecc = []
-    for t in range(0, len(dx)):
-        e = calc_ecc(mi + mj, dx[t], dy[t], dz[t], dvx[t], dvy[t], dvz[t])
-        ecc.append(e)
-    return ecc
-
-
-def get_sma(data, i, j):
-    #Nearly Eq. 2.134 of Murray-Dermott
-    mi = get_tot_mass(data, i)
-    mj = get_tot_mass(data, j)
-    dx, dy, dz = distance(data, 'p', i, j)
-    dvx, dvy, dvz = distance(data, 'v', i, j)
-
-    smas = []
-    for t in range(0, len(dx)):
-        a = calc_sma(mi + mj, dx[t], dy[t], dz[t], dvx[t], dvy[t], dvz[t])
-        smas.append(a)
-
-    return smas
-
-def get_scalar_e(data, i, j):
-    #Eq 2.135 of Murray-Dermott
-    mi = get_tot_mass(data, i)
-    mj = get_tot_mass(data, j)
-    mu = (mi+mj) #* G.value
-    dx, dy, dz = distance(data, 'p', i, j)
-    dvx, dvy, dvz = distance(data, 'v', i, j)
-    hvec = calc_h_vector([dx, dy, dz], [dvx, dvy, dvz])
-    h = mag(hvec)
-    a = get_sma(data, i, j)
-    try:
-        return np.sqrt(1-(h**2)/(mu * a))
-    except TypeError:
-        e = []
-        for t in range(0, len(a)):
-            e.append(np.sqrt(1-(h[t]**2)/(mu * a[t])))
-        
-        return e
-
-def get_inclination(data, i, j):
-    #Eq 2.134 of Murray-Dermott
-    mi = get_tot_mass(data, i)
-    mj = get_tot_mass(data, j)
-    mu = (mi+mj) #* G.value
-    dx, dy, dz = distance(data, 'p', i, j)
-    dvx, dvy, dvz = distance(data, 'v', i, j)
-    hvec = calc_h_vector([dx, dy, dz], [dvx, dvy, dvz])
-    h = mag(hvec)
-    try:
-        return np.rad2deg(np.arccos(hvec[2]/h))
-    except TypeError:
-        I = []
-        for t in range(0, len(h)):
-            I.append(np.rad2deg(np.arccos(hvec[2][t]/h[t])))
-        return I
-    
-
-def get_longitude_of_ascending_node(data, i, j):
-    #requires list input, returns Omega, sinOmega, cosOmega
-    mi = get_tot_mass(data, i)
-    mj = get_tot_mass(data, j)
-    mu = (mi+mj) #* G.value
-    dx, dy, dz = distance(data, 'p', i, j)
-    dvx, dvy, dvz = distance(data, 'v', i, j)
-    hvec = calc_h_vector([dx, dy, dz], [dvx, dvy, dvz])
-    h = mag(hvec)
-    incl = get_inclination(data, i, j)
-
- 
-
-    sines = []
-    cosines = []
-    Omegas = []
-    for t in range(0, len(h)):
-        if hvec[2][t] > 0:
-            hx = hvec[0][t]
-            hy = -1 * hvec[1][t]
-        else:
-            hx = -1 * hvec[0][t]
-            hy = hvec[1][t]
-
-        sines.append(hx / (h[t]*np.sin(np.deg2rad(incl[t]))))
-        cosines.append(hy / (h[t]*np.sin(np.deg2rad(incl[t]))))
-        Omegas.append(np.rad2deg(np.arcsin(hx / (h[t]*np.sin(np.deg2rad(incl[t]))))))
-    return Omegas, sines, cosines
-
-
-
-def get_true_anomaly(data, i, j):
-    a = get_sma(data, i, j)
-    e = get_scalar_e(data, i, j)
-    hvec = get_h_vector(data, i, j)
-    h = mag(hvec)
-    X, Y, Z = distance(data, 'p', i, j)
-    R = mag([X, Y, Z])
-    dX, dY, dZ = distance(data, 'v', i, j)
-
-    #calculate rate of change of length of radius vector (Eq. 2.130)
-    Rdot = []
-    for t in range(0, len(a)):
-        RdotRdot = X[t]*dX[t] +Y[t]*dY[t] + Z[t]* dZ[t] #2.128 
-        V2 = dX[t]**2 + dY[t]**2 + dZ[t]**2
-
-        Rdot.append(np.sign(RdotRdot) * np.sqrt(V2 - (h[t]**2 / R[t]**2)))
-
-
-    sinf = []
-    cosf = []
-    f = []
-    for t in range(0, len(a)):
-        a1e2 = a[t] * (1-e[t]**2)
-        sinft = (a1e2) * Rdot[t] / (h[t] * e[t])  
-        cosft = (1/e[t]) * (  (a1e2/R[t]) - 1 )
-        sinf.append(sinft)
-        cosf.append(cosft)
-
-        f.append(np.rad2deg(np.arcsin(sinft)))
-
-    return f, sinf, cosf
-
-def get_argument_of_periapsis(data, i, j):
-    Omega, sinOmega, cosOmega = get_longitude_of_ascending_node(data, i, j)
-    f, sinf, cosf = get_true_anomaly(data, i, j)
-    incl = get_inclination(data, i, j)
-    X, Y, Z = distance(data, 'p', i, j)
-    R = mag([X,Y,Z])
-
-    omega = []
-    omega1 = []
-    for t in range(0, len(f)):
-        sinomegaft = Z[t] / (R[t]*np.sin(np.deg2rad(incl[t])))
-        cosomegaft = (1/cosOmega[t]) * ((X[t]/R[t])+sinOmega[t]*sinomegaft*np.cos(np.deg2rad(incl[t])))
-        
-        fradianst = np.arcsin(sinf[t])
-
-        omegat = np.rad2deg(np.arcsin(sinomegaft) - fradianst)
-        omegatc = np.rad2deg(np.arccos(cosomegaft) - fradianst)
-        
-        omega.append(omegat)
-        omega1.append(omegatc)
-
-    return omega, omega1
 
 
 #-------------Read/Write Operations--------------
 # Load DefaultWriter output
 def load_spacehub_data(filename):
+    #units: AU = 1, year = 2pi, G = 1
     df = pd.read_csv(filename)
     add_norms(df)
     return df
