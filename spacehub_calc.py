@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import numbers
 from matplotlib import pyplot as plt
+from matplotlib.ticker import FormatStrFormatter
 
 
 import warnings
@@ -49,7 +50,7 @@ class TwoBodyOrbit:
     #Setters and Update methods
     
     def set_data(self, value):
-        self.data = value
+        self.data = value.dropna()
     
     def set_time(self):
         col = self.data["time"]
@@ -103,26 +104,27 @@ class TwoBodyOrbit:
         self.e_vec = [ecx, ecy, ecz]
     
     def set_N_vector(self):
-        i = self.i
-        j = self.j
-        data = self.data
-        nxs, nys, nzs = [], [], []
-        N = []
-        for t in range(0, self.npoints):
-            r = [self.R_vec[0][t], self.R_vec[1][t], self.R_vec[2][t]]
-            v = [self.V_vec[0][t], self.V_vec[1][t], self.V_vec[2][t]]
-            h = np.cross(r,v)
-            khat = [0,0,1]
-            kcrossh = np.cross(khat, h)
-            nx, ny, nz = kcrossh[0], kcrossh[1], kcrossh[2]
-            nxs.append(nx)
-            nys.append(ny)
-            nzs.append(nz)
-            N.append(mag([nx, ny, nz]))
-
-        self.N_vec = [nxs, nys, nzs]
-        self.magN = N
-
+        
+            i = self.i
+            j = self.j
+            data = self.data
+            nxs, nys, nzs = [], [], []
+            N = []
+            for t in range(0, self.npoints):
+                r = [self.R_vec[0][t], self.R_vec[1][t], self.R_vec[2][t]]
+                v = [self.V_vec[0][t], self.V_vec[1][t], self.V_vec[2][t]]
+                h = np.cross(r,v)
+                khat = [0,0,1]
+                kcrossh = np.cross(khat, h)
+                nx, ny, nz = kcrossh[0], kcrossh[1], kcrossh[2]
+                nxs.append(nx)
+                nys.append(ny)
+                nzs.append(nz)
+                N.append(mag([nx, ny, nz]))
+            
+            self.N_vec = [nxs, nys, nzs]
+            self.magN = N
+        
     def set_sma(self):
         i = self.i
         j = self.j
@@ -393,19 +395,23 @@ class TwoBodyOrbit:
         ax0 = fig.add_subplot(131, projection='3d')
         ax1 = fig.add_subplot(132)
         ax2 = fig.add_subplot(133)
-        ax0.plot([0,1],[0],[0])
-        ax0.plot([0],[0,1],[0])
-        ax0.plot([0],[0],[0,1])
-        ax0.scatter(df[df["id"]==j]["px"],df[df["id"]==j]["py"],df[df["id"]==j]["pz"], s=0.3, c='red', zorder=2)
-        ax0.scatter(df[df["id"]==i]["px"],df[df["id"]==i]["py"],df[df["id"]==i]["pz"], s=1, c='blue', zorder=1)
-        ax0.set_xlim(-8, 8)
-        ax0.set_ylim(-8, 8)
-        ax1.scatter(df[df["id"]==i]["px"], df[df["id"]==i]["py"], s=1, c='blue', zorder=1)
-        ax1.scatter(df[df["id"]==j]["px"], df[df["id"]==j]["py"], s=0.3, c='red', zorder=2)
+        #Plot axis spines
+        ax0.quiver(0, 0, 0, 1, 0, 0, color='black', arrow_length_ratio=0.1, linewidth=2, label='X-axis')
+        ax0.quiver(0, 0, 0,  0, 1, 0, color='black', arrow_length_ratio=0.1, linewidth=2, label='Y-axis')
+        ax0.quiver(0, 0, 0, 0, 0, 1, color='black', arrow_length_ratio=0.1, linewidth=2, label='Z-axis')
+        #plot orbit of j around i
+        ax0.scatter(self.R_vec[0], self.R_vec[1], self.R_vec[2], s=0.3, c='red', zorder=2, label="Secondary")
+        ax0.scatter(0, 0, 0, s=3, c='blue', zorder=1, label="Primary")
+        #ax0.set_xlim(-8, 8)
+        #ax0.set_ylim(-8, 8)
+        ax1.scatter(0, 0, s=3, c='blue', zorder=1, label="Primary")
+        ax1.scatter(self.R_vec[0], self.R_vec[1], s=0.3, c='red', zorder=2, label="Secondary")
         ax1.grid(visible=True, zorder=-1)
+        ax1.set_xlim(-1,1)
+        ax1.set_ylim(-1,1)
 
-        ax2.scatter(df[df["id"]==j]["px"], df[df["id"]==j]["pz"], s=0.3, c='red', zorder=2)
-        ax2.scatter(df[df["id"]==i]["px"], df[df["id"]==i]["pz"], s=1, c='blue', zorder=1)
+        ax2.scatter(self.R_vec[0], self.R_vec[2], s=0.3, c='red', zorder=2, label="Secondary")
+        ax2.scatter(0, 0, s=3, c='blue', zorder=1, label="Primary")
         ax2.grid(visible=True, zorder=-1)
 
         return fig, [ax0, ax1, ax2]
@@ -419,36 +425,43 @@ class TwoBodyOrbit:
         axs = axes.flatten()
         axs[0].plot(self.time, self.eccentricity)
         axs[0].set_ylim(-0.1, 1)
-        axs[0].set_ylabel("Eccentricity")
+        #axs[0].set_ylabel("Eccentricity")
         axs[0].set_xlim(xlim)
+        axs[0].set_title("Eccentricity")
+        axs[0].set_ylabel(r"$e$")
 
         axs[1].plot(self.time, self.inclination_deg)
         axs[1].set_xlim(xlim)
         axs[1].set_ylim(0, 360)
-        axs[1].set_ylabel(r"Inclination $i$ (deg)")
+        axs[1].set_title("Inclination")
+        axs[1].set_ylabel(r"$i$ (deg)")
 
         axs[2].plot(self.time, self.magR)
         axs[2].set_xlim(xlim)
         axs[2].set_title("R (AU)")
         axs[2].set_ylim(0, 10)
-        axs[2].set_ylabel(r"Separation $||R||$ ($AU$)")
+        axs[2].set_title(r"Separation")
+        axs[2].set_ylabel(r"$||R||$ ($AU$)")
 
         axs[3].plot(self.time, self.LongitudeAscendingNode_deg)
         axs[3].set_title("")
         axs[3].set_xlim(xlim)
         axs[3].set_ylim(0, 360)
-        axs[3].set_ylabel(r"Longitude of Ascending Node $\Omega$ (deg)")
+        axs[3].set_ylabel(r"$\Omega$ (deg)")
+        axs[3].set_title(r"Longitude of Ascending Node")
 
-
-        axs[4].plot(self.time, self.true_anomaly_deg)
+        axs[4].plot(self.time, self.semiMajorAxis)
         axs[4].set_xlim(xlim)
-        axs[4].set_ylim(0, 360)
-        axs[4].set_ylabel(r"True Anomaly $f$ (deg)")
-
+        #axs[4].set_ylim(0, 10)
+        axs[4].set_ylabel(r"$a$ (AU)")
+        axs[4].set_title(r"Semi-major Axis")
+        axs[4].yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+        
         axs[5].plot(self.time, self.argument_of_periapsis_deg)
         axs[5].set_xlim(xlim)
         axs[5].set_ylim(0, 360)
-        axs[5].set_ylabel(r"Argument of Periapsis $\omega$ (deg)")
+        axs[5].set_ylabel(r"$\omega$ (deg)")
+        axs[5].set_title(r"Argument of Periapsis")
 
         for ax in axs:
             ax.set_xlabel("$yr (2\pi)^{-1}$")
@@ -645,9 +658,11 @@ def get_L(data, i, j):
 
 #-------------Read/Write Operations--------------
 # Load DefaultWriter output
-def load_spacehub_data(filename):
+def load_spacehub_data(filename, dropna=True):
     #units: AU = 1, year = 2pi, G = 1
     df = pd.read_csv(filename)
     add_norms(df)
+    if dropna:
+        df = df.dropna()
     return df
 
