@@ -24,7 +24,7 @@ int main(int argc, char** argv) {
 
     //Solver: t_start, particle1, particle2, ...
     Solver solver{0, p1, p2};
-
+    Solver::RunArgs args;
     args.add_stop_condition(1000_year);
 
     args.add_operation(DefaultWriter("TwoBodyPN5.txt"));

@@ -13,10 +13,10 @@ using Solver = methods::DefaultMethod<f>;
 using Particle = Solver::Particle;
 
 int main(int argc, char** argv) {
-    Particle p1{1_Ms};
-    Particle p2{1_Ms};
+    Particle p1{30_Ms};
+    Particle p2{30_Ms};
 
-    auto inner_orb = orbit::Elliptic(p1.mass, p2.mass, 5_AU, 0.001, 1_deg, 2_deg, 3_deg, 4_deg);
+    auto inner_orb = orbit::Elliptic(p1.mass, p2.mass, 0.001_AU, 0.95, 1_deg, 2_deg, 3_deg, 4_deg);
 
     orbit::move_particles(inner_orb, p2);
 
@@ -24,8 +24,9 @@ int main(int argc, char** argv) {
 
     //Solver: t_start, particle1, particle2, ...
     Solver solver{0, p1, p2};
+    Solver::RunArgs args;
 
-    args.add_stop_condition(1000_year);
+    args.add_stop_condition(10000_year);
 
     args.add_operation(DefaultWriter("TwoBodyPN5.txt"));
 

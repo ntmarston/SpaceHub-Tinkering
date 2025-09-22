@@ -15,6 +15,10 @@ class TwoBodyOrbit:
     i = 0 #Primary mass object
     j = 1 #Secondary mass object
 
+    M_i = None
+    M_j = None
+
+
     #Orbit State Vectors
     time = None
     R_vec = None
@@ -47,52 +51,66 @@ class TwoBodyOrbit:
     argument_of_periapsis_deg = None
 
     time_of_pericenter_passage = None
+
+    c0 = None
+
     #Setters and Update methods
     
     def set_data(self, value):
         self.data = value.dropna()
     
+    def set_npoints(self):
+        timesteps0 = len(self.data[self.data["id"]==self.i]["time"])
+        timesteps1 = len(self.data[self.data["id"]==self.j]["time"])
+        self.npoints = min(timesteps0, timesteps1)
+
     def set_time(self):
-        col = self.data["time"]
-        self.time = col.drop_duplicates().to_list()
-    
+        timesteps_i = len(self.data[self.data["id"]==self.i]["time"])
+        timesteps_j = len(self.data[self.data["id"]==self.j]["time"])
+        if timesteps_i < timesteps_j:
+            col = self.data[self.data["id"]==self.i]["time"]
+        else: #If they have the same number of timesteps, or if j has more
+            col = self.data[self.data["id"]==self.j]["time"] 
+
+        
+        self.time = col.to_list()
+        
     def set_ij(self, i, j):
         self.i = i
         self.j = j
 
-    
-    def set_npoints(self):
-        df = self.data
-        timesteps = df["time"].nunique()
-        self.npoints = timesteps
+    def set_masses(self):
+        mi = get_tot_mass(self.data, self.i)
+        mj = get_tot_mass(self.data, self.j)
+        self.M_i = mi
+        self.M_j = mj
 
     def set_R_and_V(self):
         data, i, j = self.data, self.i, self.j
-        X, Y, Z = distance(data, 'p', i, j)
+        X, Y, Z = distance(data, 'p', i, j, self.npoints)
         magR = mag([X, Y, Z])
         self.R_vec = [X, Y, Z]
         self.magR = magR
 
-        vx, vy, vz = distance(data, 'v', i, j)
+        vx, vy, vz = distance(data, 'v', i, j, self.npoints)
         self.V_vec = [vx, vy, vz]
 
     def set_h_vector(self):
         i = self.i
         j = self.j
         data = self.data
-        dx, dy, dz = distance(data, 'p', i, j)
-        dvx, dvy, dvz = distance(data, 'v', i, j)
+        dx, dy, dz = distance(data, 'p', i, j, self.npoints)
+        dvx, dvy, dvz = distance(data, 'v', i, j, self.npoints)
         self.hvec = calc_h_vector([dx, dy, dz], [dvx, dvy, dvz])
-
-    
+   
     def set_ecc_vector(self):
         i = self.i
         j = self.j
         data = self.data
         mi = get_tot_mass(data, i)
         mj = get_tot_mass(data, j)
-        dx, dy, dz = distance(data, 'p', i, j)
-        dvx, dvy, dvz = distance(data, 'v', i, j)
+        dx, dy, dz = distance(data, 'p', i, j, self.npoints)
+        dvx, dvy, dvz = distance(data, 'v', i, j, self.npoints)
 
         ecx, ecy, ecz = [], [], []
         for t in range(0, len(dx)):
@@ -111,20 +129,24 @@ class TwoBodyOrbit:
             nxs, nys, nzs = [], [], []
             N = []
             for t in range(0, self.npoints):
-                r = [self.R_vec[0][t], self.R_vec[1][t], self.R_vec[2][t]]
-                v = [self.V_vec[0][t], self.V_vec[1][t], self.V_vec[2][t]]
-                h = np.cross(r,v)
-                khat = [0,0,1]
-                kcrossh = np.cross(khat, h)
-                nx, ny, nz = kcrossh[0], kcrossh[1], kcrossh[2]
-                nxs.append(nx)
-                nys.append(ny)
-                nzs.append(nz)
-                N.append(mag([nx, ny, nz]))
-            
+                try:
+                    r = [self.R_vec[0][t], self.R_vec[1][t], self.R_vec[2][t]]
+                    v = [self.V_vec[0][t], self.V_vec[1][t], self.V_vec[2][t]]
+                    h = np.cross(r,v)
+                    khat = [0,0,1]
+                    kcrossh = np.cross(khat, h)
+                    nx, ny, nz = kcrossh[0], kcrossh[1], kcrossh[2]
+                    nxs.append(nx)
+                    nys.append(ny)
+                    nzs.append(nz)
+                    N.append(mag([nx, ny, nz]))
+                except IndexError:
+                    print(f"{t}, {self.npoints}, {len(self.time)}, {len(self.R_vec[0])}, {len(self.R_vec[1])}, {len(self.R_vec[2])}")
             self.N_vec = [nxs, nys, nzs]
             self.magN = N
-        
+
+    rdebug = []
+    v2debug = []
     def set_sma(self):
         i = self.i
         j = self.j
@@ -132,17 +154,17 @@ class TwoBodyOrbit:
         #Nearly Eq. 2.134 of Murray-Dermott
         mi = get_tot_mass(data, i)
         mj = get_tot_mass(data, j)
-        dx, dy, dz = distance(data, 'p', i, j)
-        dvx, dvy, dvz = distance(data, 'v', i, j)
-
+        dx, dy, dz = distance(data, 'p', i, j, self.npoints)
+        dvx, dvy, dvz = distance(data, 'v', i, j, self.npoints)
+        
         smas = []
         for t in range(0, len(dx)):
             a = calc_sma(mi + mj, dx[t], dy[t], dz[t], dvx[t], dvy[t], dvz[t])
             smas.append(a)
-
+            self.rdebug.append(np.sqrt(dx[t] ** 2 + dy[t] ** 2 + dz[t] ** 2))
+            self.v2debug.append(dvx[t] ** 2 + dvy[t] ** 2 + dvz[t] ** 2)
         self.semiMajorAxis = smas
 
-    
     def set_scalar_e(self):
         i = self.i
         j = self.j
@@ -161,8 +183,7 @@ class TwoBodyOrbit:
             e.append(np.sqrt(1-(h[t]**2)/(mu * a[t])))
         
         self.eccentricity = e
-
-   
+  
     def set_inclination(self):
         i = self.i
         j = self.j
@@ -171,8 +192,8 @@ class TwoBodyOrbit:
         mi = get_tot_mass(data, i)
         mj = get_tot_mass(data, j)
         mu = (mi+mj) #* G.value
-        dx, dy, dz = distance(data, 'p', i, j)
-        dvx, dvy, dvz = distance(data, 'v', i, j)
+        dx, dy, dz = distance(data, 'p', i, j, self.npoints)
+        dvx, dvy, dvz = distance(data, 'v', i, j, self.npoints)
         hvec = calc_h_vector([dx, dy, dz], [dvx, dvy, dvz])
         h = mag(hvec)
         I = []
@@ -182,7 +203,6 @@ class TwoBodyOrbit:
         self.inclination_rad = I
         self.inclination_deg = np.rad2deg(I)
 
-    
     def set_longitude_of_ascending_node(self):
         i = self.i
         j = self.j
@@ -343,6 +363,23 @@ class TwoBodyOrbit:
         
         self.time_of_pericenter_passage = taus
     
+    def set_c0(self, deviation_check = True): #find the constant c0 defined in Peters (1964) Eq. 5.48, Primarily for debugging purposes
+        aetup = [(self.semiMajorAxis[i], self.eccentricity[i]) for i in range(0, self.npoints)]
+        def calc_c0(tuple_list):
+            c0=[]
+            for pair in tuple_list:
+                a = pair[0]
+                e = pair[1]
+                c0i = a * (1-e**2) * (e**(-12/19)) * (1 + (121/304)*e**2 )**(-870/2299)
+                c0.append(c0i)
+            return c0
+        c0 = calc_c0(aetup)
+        if deviation_check:
+            amplitude = max(c0) - min(c0)
+            print(f"Calculated c0 values are within {amplitude:.4} of constant (maximum - minimum)")
+        self.c0 = c0
+
+
     def __init__(self, filename, i, j):
         self.data = load_spacehub_data(filename)
         self.i = i
@@ -352,6 +389,8 @@ class TwoBodyOrbit:
         self.set_time()
         #set R vec
         self.set_R_and_V()
+        #Set mass attributes
+        self.set_masses()
         #set hvec
         self.set_h_vector()
         #set N vec
@@ -375,6 +414,7 @@ class TwoBodyOrbit:
         #solve time of pericenter passage
         self.set_time_of_pericenter_passage()
 
+        self.set_c0()
 
     def __str__(self):
         outstr = ""
@@ -388,6 +428,9 @@ class TwoBodyOrbit:
                    + f"Orbital Separation: {self.magR[0]}" + "\n")
         return outstr
 
+    def to_pandas(self):
+        col_names = ["id", "x", "y", "z", "vx", "vy", "vz", "arg_of_peri_deg", "inclination_deg", "magN", "magR", "a", "true_anomaly_deg"]
+        pass
 
     def plot_orbit_3panel(self):
         df, i, j = self.data, self.i, self.j
@@ -503,7 +546,7 @@ def calc_L(m1, m2, dx, dy, dz, dvx, dvy, dvz):
 
     return m_nu * Lx, m_nu * Ly, m_nu * Lz
 
-def distance(data, key, i, j):
+def distance(data, key, i, j, npoints):
     if type(i) is int:
         xi = data[data["id"]==i][key + 'x']
         yi = data[data["id"]==i][key + 'y']
@@ -524,7 +567,7 @@ def distance(data, key, i, j):
 
     #de-index to avoid nans
     xdist, ydist, zdist = [], [], []
-    for t in range(0, len(xi)):
+    for t in range(0, npoints):
         xdist.append(xi.iloc[t] - xj.iloc[t])
         ydist.append(yi.iloc[t] - yj.iloc[t])
         zdist.append(zi.iloc[t] - zj.iloc[t])
@@ -653,6 +696,15 @@ def get_L(data, i, j):
     return Lx, Ly, Lz
 
 
+#----Things I wrote and don't know what to do with but they might be useful at some point----
+"""def a_theory(t): from peters 5.45 for a *circular orbit*
+    t = t * u.yr / (np.pi * 2)
+    m1 = orb.M_i * u.Msun
+    m2 = orb.M_j * u.Msun
+    beta = (64/5) * G**3 * m1 * m2 * (m1+m2) * c**(-5) #Idk if the c^-5 is supposed to be here, but it fixes the units. G and c are not hard to write. stop using G=C=1
+    a0 = orb.semiMajorAxis[1] * u.AU
+    a_theory = (a0**4 - 4*beta*t)**(1/4)
+    return a_theory.value"""
 
 
 
@@ -661,8 +713,9 @@ def get_L(data, i, j):
 def load_spacehub_data(filename, dropna=True):
     #units: AU = 1, year = 2pi, G = 1
     df = pd.read_csv(filename)
-    add_norms(df)
     if dropna:
         df = df.dropna()
+    add_norms(df)
+    
     return df
 
