@@ -3,6 +3,11 @@ import numpy as np
 import numbers
 from matplotlib import pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
+import matplotlib.animation as animation
+from astropy import units as u
+from astropy.constants import G, c
+import matplotlib as mpl
+mpl.rcParams['animation.embed_limit'] = 250
 
 
 import warnings
@@ -53,6 +58,8 @@ class TwoBodyOrbit:
     time_of_pericenter_passage = None
 
     c0 = None
+    points_per_orbit = None
+    points_per_orbit_avg = None
 
     #Setters and Update methods
     
@@ -379,15 +386,26 @@ class TwoBodyOrbit:
             print(f"Calculated c0 values are within {amplitude:.4} of constant (maximum - minimum)")
         self.c0 = c0
 
+    def set_points_per_orbit(self):
+        df = np.diff(self.true_anomaly_deg)
+        indices = np.where(np.sign(df) < 0)[0]
+        extremes_t = [self.time[i] for i in indices]
+        ppo = np.diff(indices)
+        self.points_per_orbit = ppo
+        self.points_per_orbit_avg = np.mean(ppo)
 
     def __init__(self, filename, i, j):
+        
         self.data = load_spacehub_data(filename)
         self.i = i
         self.j = j
+        print("load data complete")
         #set len and time
+        print("Determining timesteps...")
         self.set_npoints()
         self.set_time()
         #set R vec
+        print("Calculating orbital state vectors...")
         self.set_R_and_V()
         #Set mass attributes
         self.set_masses()
@@ -398,6 +416,7 @@ class TwoBodyOrbit:
         #solve eccentricity vector
         self.set_ecc_vector()
         #solve Semi-major axis
+        print("Calculating scalar orbital elements...")
         self.set_sma()
         #solve eccentricity
         self.set_scalar_e()
@@ -413,8 +432,13 @@ class TwoBodyOrbit:
         self.set_eccentric_anomaly()
         #solve time of pericenter passage
         self.set_time_of_pericenter_passage()
-
+        #Set orbit point-wise resolution
+        self.set_points_per_orbit()
+        #Set a-e relation constant c0 (Peters 1964 eq 5.48)
         self.set_c0()
+        print("Done")
+
+        
 
     def __str__(self):
         outstr = ""
@@ -430,6 +454,7 @@ class TwoBodyOrbit:
 
     def to_pandas(self):
         col_names = ["id", "x", "y", "z", "vx", "vy", "vz", "arg_of_peri_deg", "inclination_deg", "magN", "magR", "a", "true_anomaly_deg"]
+        raise NotImplementedError("Not Implemented")
         pass
 
     def plot_orbit_3panel(self):
@@ -459,7 +484,7 @@ class TwoBodyOrbit:
 
         return fig, [ax0, ax1, ax2]
     
-    def plot_keplerian_evolution_basic(self, xlim = []):
+    def plot_keplerian_evolution_basic(self, xlim = [], time_stop=0):
         #e, a, i, Omega, f, omega
         if len(xlim) < 2:
             xlim = [0, max(self.time)]
@@ -507,8 +532,80 @@ class TwoBodyOrbit:
         axs[5].set_title(r"Argument of Periapsis")
 
         for ax in axs:
-            ax.set_xlabel("$yr (2\pi)^{-1}$")
+            ax.set_xlabel(r"$yr (2\pi)^{-1}$")
         return fig, axs
+
+    def plot_trajectory_3d(self, fig, ax, start_index = 0, *args, **kwargs):
+        """
+            args and kwargs are passed directly to animation.FuncAnimation
+            pass fig, ax objects with 
+        ``` fig = plt.figure()
+            ax = fig.add_subplot(projection='3d')```
+           Use HTML(ani.to_jshtml()) to render in IPython Notebooks
+            
+         """
+
+        rx = self.R_vec[0][start_index:]
+        ry = self.R_vec[1][start_index:]
+        rz = self.R_vec[2][start_index:]
+        global traj_points
+        traj_points = ax.scatter3D(rx[0], ry[0], rz[0], c="purple")
+        ref_frame_particle = ax.scatter3D(0, 0, 0, c="blue")
+        traj = ax.plot(rx[0], ry[0], rz[0], c="gold")[0]
+
+
+        def update(frame_num):
+            # for each frame, update the data stored on each artist.
+            window_size = 1
+            window_start = frame_num-window_size if (frame_num > window_size) else 0
+            x = rx[window_start:frame_num]
+            y = ry[window_start:frame_num]
+            z = rz[window_start:frame_num]
+            # Update scatter
+            data = np.stack([x,y,z]).T
+            global traj_points  # Need global to reassign
+            traj_points.remove()
+            traj_points = ax.scatter3D(x, y, z, c="blue")
+            # update the line plot:
+            traj.set_data([rx[:frame_num], ry[:frame_num]])
+            traj.set_3d_properties(rz[:frame_num])
+
+            #traj.set_zdata(z[:frame])
+            return (traj_points, traj)
+        
+        ani = animation.FuncAnimation(fig=fig, func=update, *args, **kwargs)
+        return ani
+
+
+
+class Theorize:
+
+
+
+    def __init__(self):
+        pass
+
+    @staticmethod
+    def enhancement_factor(e):
+        sopra = 1 + (73/24)*e**2 + (37/96) * e**4
+        sotto = (1-e**2)**(7/2)
+        return sopra/sotto
+
+    @staticmethod
+    def decay_time_PN2p5(a0, m1, m2, e0):
+        a0 = a0 * u.AU
+        m1 = m1 * u.Msun
+        m2 = m2 * u.Msun
+        beta = (64/5) * G**3 * m1 * m2 * (m1+m2) * c**(-5) #Idk if the c^-5 is supposed to be here, but it fixes the units. G and c are not hard to write. stop using G=C=1
+        f = Theorize.enhancement_factor(e0)
+
+        T = a0**4 / (4*beta*f)
+        return T.to(u.yr)
+
+    @staticmethod
+    def time_to_a_PN2p5(a_final):
+        pass
+
 
 #-----Helper/Standalone Functions Below-----
 #Calc functions
@@ -663,16 +760,15 @@ def get_h_vector(data, i, j):
 def add_norms(data):
     #adds norm column to output, is inplace
     p_num = data["id"].nunique()
-    for i in range(p_num):
-        px = data['px']
-        py = data['py']
-        pz = data['pz']
-        data['p'] = calc_norm(px, py, pz)
+    px = data['px']
+    py = data['py']
+    pz = data['pz']
+    data['p'] = calc_norm(px, py, pz)
 
-        vx = data['vx']
-        vy = data['vy']
-        vz = data['vz']
-        data['v'] = calc_norm(vx, vy, vz)
+    vx = data['vx']
+    vy = data['vy']
+    vz = data['vz']
+    data['v'] = calc_norm(vx, vy, vz)
 
 def scalar_product_xyz(vec1, vec2):
     #does not do lists
