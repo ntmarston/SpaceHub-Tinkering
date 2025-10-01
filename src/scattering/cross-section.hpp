@@ -107,7 +107,7 @@ namespace hub::scattering {
      * with radius b_max.
      *
      * @tparam Scalar Floating point like type.
-     * @param[in] m_stay The mass of the scattered object.
+     * @param[in] m_stay The mass of the scattered (target) object.
      * @param[in] m_incident The mass of the incident object.
      * @param[in] v_inf The relative velocity at infinity between scattering objects.
      * @param[in] b_max The max impact parameter.
@@ -123,8 +123,9 @@ namespace hub::scattering {
     }
 
     /**
-     * @brief Randomly create an incident orbit that its infinity incident end is uniformly distributed in a circle area
-     * with radius b_max.
+     * @brief Create an incident orbit with its starting point placed randomly within a circle with radius b_max at r=\infty
+     * "Randomly create an incident orbit that its infinity incident end is uniformly distributed in a circle area
+     * with radius b_max.""
      * @tparam Cluster1 std::ranges(Container) with element type has public member `mass`(Scalar), `pos`(Vector) and
      * `vel`(Vector)./Type of single particle.
      * @tparam Cluster2 std::ranges(Container) with element type has public member `mass`(Scalar), `pos`(Vector) and

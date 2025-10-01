@@ -15,6 +15,8 @@ warnings.filterwarnings("ignore")
 
 class TwoBodyOrbit:
     
+    #Expect deviations when using non-conservative methods (e.g. Post-Newtonian approximation)
+
     npoints = 0
     data = None
     i = 0 #Primary mass object
@@ -56,6 +58,7 @@ class TwoBodyOrbit:
     argument_of_periapsis_deg = None
 
     time_of_pericenter_passage = None
+    orbital_period = None
 
     c0 = None
     points_per_orbit = None
@@ -370,6 +373,20 @@ class TwoBodyOrbit:
         
         self.time_of_pericenter_passage = taus
     
+    def set_orbital_period(self, G=1):
+        #NOTE: Default is to use G=1
+        
+        P = []
+        for p in range(0, self.npoints):
+            a = self.semiMajorAxis[p]
+            period = 2*np.pi * (a**3 / (G * self.M_i))**(1/2)
+            P.append(period)
+        
+        self.orbital_period = P
+
+
+
+
     def set_c0(self, deviation_check = True): #find the constant c0 defined in Peters (1964) Eq. 5.48, Primarily for debugging purposes
         aetup = [(self.semiMajorAxis[i], self.eccentricity[i]) for i in range(0, self.npoints)]
         def calc_c0(tuple_list):
@@ -436,6 +453,8 @@ class TwoBodyOrbit:
         self.set_points_per_orbit()
         #Set a-e relation constant c0 (Peters 1964 eq 5.48)
         self.set_c0()
+        print("WARNING: Orbital period calculation has not been checked")
+        self.set_orbital_period()
         print("Done")
 
         
@@ -540,7 +559,10 @@ class TwoBodyOrbit:
             args and kwargs are passed directly to animation.FuncAnimation
             pass fig, ax objects with 
         ``` fig = plt.figure()
-            ax = fig.add_subplot(projection='3d')```
+            ax = fig.add_subplot(projection='3d') 
+            ani = plot_trajectory_3d(...)
+            HTML(ani.to_jshtml()) # For IPython notebooks
+            ```
            Use HTML(ani.to_jshtml()) to render in IPython Notebooks
             
          """
@@ -815,3 +837,6 @@ def load_spacehub_data(filename, dropna=True):
     
     return df
 
+
+
+#----To sort----

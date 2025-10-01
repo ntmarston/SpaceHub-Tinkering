@@ -371,7 +371,7 @@ namespace hub::orbit {
      *
      * @tparam Particle Type of the first particle/std::ranges(Container) with element type has public member
      * `mass`(Scalar), `pos`(Vector) and `vel`(Vector).
-     * @param[in,out] ptc The particles/The cluster/single particle needs to be moved.
+     * @param[in,out] ptc The particles/The cluster/single particle to be moved.
      */
     template <typename... Particle>
     void move_to_COM_frame(Particle &...ptc) {
