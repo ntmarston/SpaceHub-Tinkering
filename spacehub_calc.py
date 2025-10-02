@@ -232,6 +232,7 @@ class TwoBodyOrbit:
         cosines = []
         Omegas = []
         for t in range(0, self.npoints):
+            
             if hvec[2][t] > 0:
                 hx = hvec[0][t]
                 hy = -1 * hvec[1][t]
@@ -257,8 +258,10 @@ class TwoBodyOrbit:
 
         #checkpoint
         for t in range(0, self.npoints):
+            if np.abs(incl[t]) < 0.01: #Allow nan values if inclination is zero because Omega is then undefined
+                continue 
             checksum = sines[t]**2 + cosines[t]**2
-            assert np.abs(1-checksum) < 0.1, f"Checkpoint test failed in set_longitude_of_ascending_node. sin^2+cos^2 = {checksum}"
+            assert np.abs(1-checksum) < 0.1, f"Checkpoint test failed in set_longitude_of_ascending_node. sin^2+cos^2 = {checksum} (pn: {t})"
         
         self.sinOmega = sines
         self.cosOmega = cosines
@@ -556,11 +559,12 @@ class TwoBodyOrbit:
 
     def plot_trajectory_3d(self, fig, ax, start_index = 0, *args, **kwargs):
         """
+            Runtime may be long if [interval=n1] and [frames=n2] are not specified
             args and kwargs are passed directly to animation.FuncAnimation
             pass fig, ax objects with 
         ``` fig = plt.figure()
             ax = fig.add_subplot(projection='3d') 
-            ani = plot_trajectory_3d(...)
+            ani = orb.plot_trajectory_3d(fig, ax,...)
             HTML(ani.to_jshtml()) # For IPython notebooks
             ```
            Use HTML(ani.to_jshtml()) to render in IPython Notebooks
