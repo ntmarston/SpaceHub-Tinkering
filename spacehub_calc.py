@@ -619,6 +619,8 @@ class Theorize:
 
     @staticmethod
     def decay_time_PN2p5(a0, m1, m2, e0):
+        """Assumes units a0: AU, M: Msun"""
+        #TODO import the ensure_units method I wrote for exosystem module
         a0 = a0 * u.AU
         m1 = m1 * u.Msun
         m2 = m2 * u.Msun
@@ -656,10 +658,12 @@ def calc_sma(m_tot, dx, dy, dz, dvx, dvy, dvz):
     return - u * r / (r * v2 - 2 * u)
 
 def calc_angle(x1, y1, z1, x2, y2, z2):
+    """Calc angle between two vectors"""
     r1 = calc_norm(x1, y1, z1)
     r2 = calc_norm(x2, y2, z2)
     cos = (x1 * x2 + y1 * y2 + z1 * z2) / (r1 * r2)
     return np.arccos(cos)
+
 
 def calc_L(m1, m2, dx, dy, dz, dvx, dvy, dvz):
     m_nu = m1 * m2 / (m1 + m2)
@@ -817,6 +821,26 @@ def get_L(data, i, j):
 
     return Lx, Ly, Lz
 
+def distance(data, key, i, j):
+    if type(i) is int:
+        xi = data[key + 'x' + str(i)]
+        yi = data[key + 'y' + str(i)]
+        zi = data[key + 'z' + str(i)]
+    elif type(i) is tuple:
+        xi, yi, zi = get_com(data, key, i)
+    else:
+        print('wrong index type of i')
+
+    if type(j) is int:
+        xj = data[key + 'x' + str(j)]
+        yj = data[key + 'y' + str(j)]
+        zj = data[key + 'z' + str(j)]
+    elif type(j) is tuple:
+        xj, yj, zj = get_com(data, key, j)
+    else:
+        print('wrong index type of j')
+
+    return xi - xj, yi - yj, zi - zj
 
 #----Things I wrote and don't know what to do with but they might be useful at some point----
 """def a_theory(t): from peters 5.45 for a *circular orbit*

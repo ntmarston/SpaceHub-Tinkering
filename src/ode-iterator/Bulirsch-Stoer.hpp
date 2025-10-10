@@ -278,6 +278,7 @@ namespace hub::ode {
                 }
             }
         }
+        throw std::runtime_error("Reach max iteration loop number!");
         spacehub_abort("Reach max iteration loop number!");
     }
 
@@ -354,6 +355,7 @@ namespace hub::ode {
             }
             particles.read_from_scalar_array(input_);
         }
+        throw std::runtime_error("Reach max iteration loop number!");
         spacehub_abort("Reach max iteration loop number!");
     }
     template <typename Integrator, typename ErrEstimator, typename StepController, size_t MaxIter>

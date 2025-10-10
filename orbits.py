@@ -40,7 +40,10 @@ def get_norm(p_num, data):
 
 
 def load_spacehub_data(fname):
-    data = pd.read_csv(fname)
+    
+    data = pd.read_csv(fname, index_col=False)
+    data = data[data["time"]>0]
+    #print(data)
     dic = {name: data[name].to_numpy() for name in data.columns}
     particle_num = len(np.unique(dic['id']))
 

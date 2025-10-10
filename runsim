@@ -1,0 +1,38 @@
+#!/bin/bash
+
+# Check if an argument was provided
+if [ $# -eq 0 ]; then
+    echo "Usage: runsim {REL PATH TO .CPP FILE}"
+    exit 1
+fi
+
+# Get the relative path to the cpp file
+CPP_FILE="$1"
+
+# Check if the file exists
+if [ ! -f "$CPP_FILE" ]; then
+    echo "Error: File '$CPP_FILE' not found"
+    exit 1
+fi
+
+# Extract the filename without path and without .cpp extension
+FILENAME=$(basename "$CPP_FILE" .cpp)
+
+# Create simulations directory if it doesn't exist
+mkdir -p simulations
+
+# Compile the C++ file
+echo "Compiling $CPP_FILE..."
+g++ -std=c++17 -O3 -pthread "$CPP_FILE" -o "simulations/$FILENAME"
+
+# Check if compilation was successful
+if [ $? -ne 0 ]; then
+    echo "Compilation failed"
+    exit 1
+fi
+
+echo "Compilation successful. Running simulation..."
+echo "----------------------------------------"
+
+# Run the compiled program
+"simulations/$FILENAME"
