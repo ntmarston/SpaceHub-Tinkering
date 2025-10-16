@@ -10,7 +10,7 @@ using namespace callback;
 using namespace orbit; // save writing orbit::
 using namespace force;
 /*----------------------------------------------------------------------------------------------------------------*/
-using f = Interactions<NewtonianGrav>;
+using f = Interactions<NewtonianGrav, PN2p5>;
 using Solver = methods::AR_Chain_Plus<f, particles::SizeParticles>;
 
 using Particle = Solver::Particle;
@@ -21,25 +21,26 @@ void job(std::vector<std::array<Scalar, 3>> &combinations, size_t n_start, size_
 {
 
     std::fstream ptc_res_file("simulation_results/mt_dump/fig2_ptc_" + std::to_string(n_start) + ".txt", std::ios::out);
-    std::fstream ordered_inputs_file("simulation_results/mt_dump/fig2_ics_" + std::to_string(n_start) + ".txt", std::ios::out);
+    std::fstream errlog_file("simulation_results/logs/errlog_" + std::to_string(n_start) + ".txt", std::ios::out);
+    
 
     if (n_start == 0)
     {
         ptc_res_file << "time,id,mass,px,py,pz,vx,vy,vz" << '\n';
-        ordered_inputs_file << "b,azi,incl,ci,cj" << '\n';
+        
     }
     // IC statics
     Scalar Mijk = 10_Ms;
     Scalar Rsijk = 4.2450051e-5_Rs;
-    Scalar v_inf = 1.6314_kms; // Yes
+    Scalar v_inf = 10.8758_kms; //Calculated in notebook
 
-    Scalar ab = 1_AU;
+    Scalar ab = 1e-2_AU;
 
     Scalar b_i;
     Scalar azi_j;
     Scalar incl;
 
-    print(std::cout << "Begin job i=" << n_start << '\n');
+    //print(std::cout << "Begin job i=" << n_start << '\n');
 
     for (size_t i = n_start; i < n_stop; i++)
     {
@@ -47,11 +48,17 @@ void job(std::vector<std::array<Scalar, 3>> &combinations, size_t n_start, size_
         b_i = bfi[0];
         azi_j = bfi[1];
         incl = bfi[2];
+        
 
         auto r_start = (20 * ab);
 
-        char exit_condition = 't';
-        // print(std::cout << "Begin sim (bfi): (" << b_i << "," << azi_j << "," << incl << ")" << '\n');
+       int exit_condition = 0;
+        /*
+        -1: Error
+        0: time stop
+        1: collision
+        2: GW inspiral (TODO)
+        */
 
         try
         {
@@ -65,9 +72,19 @@ void job(std::vector<std::array<Scalar, 3>> &combinations, size_t n_start, size_
             the incident and binary orbit, however since I am not sure how spacehub defines longitude of asc node when incl=0,
             we will set Omega and nu to zero and vary the arg of periapsis
             --> Or this could be set in the incident orbit? Probably easier here*/
-            auto binary_orb = Elliptic(p1.mass, p2.mass, ab, 0.0, 0.0, 0.0, azi_j, 0.0);
-
-            move_particles(binary_orb, p2); // move p2 to the corresponding position/velocity of the orbit around origin(p1)
+            Scalar incl_offset = 0_deg;
+            Scalar Torb;
+            if (b_i < 0){
+                b_i = -b_i;
+                incl_offset = 180_deg;
+                
+            }
+            
+            
+            auto binary_orb = Elliptic(p1.mass, p2.mass, ab, 0.0, incl_offset, 0.0, azi_j, 0.0);
+                move_particles(binary_orb, p2);
+                Torb = period(binary_orb);
+             // move p2 to the corresponding position/velocity of the orbit around origin(p1)
 
             move_to_COM_frame(p1, p2); // sets origin to the center of mass between p1/p2?
 
@@ -93,9 +110,17 @@ void job(std::vector<std::array<Scalar, 3>> &combinations, size_t n_start, size_
 
             /*------------------------------------STOP CONDITIONS--------------------------------------------------*/
             // Time out stop condition
-            
-            Scalar ttp = time_to_periapsis(orbit::group(p1, p2), p3);
-            Scalar t_end = 60 * ttp;
+            Scalar t_end = 500 * Torb;
+            /*if (bfi[0] < 0){
+                Scalar ttp = time_to_periapsis(orbit::group(p2, p1), p3);
+                 t_end = 100_year;
+                 //errlog_file << t_end << "\n";
+            }
+            else 
+            {
+                Scalar ttp = time_to_periapsis(orbit::group(p1, p2), p3);
+                 t_end = 100_year;
+            }*/
 
             // to do: args.rtol <-- vary this
             
@@ -114,7 +139,7 @@ void job(std::vector<std::array<Scalar, 3>> &combinations, size_t n_start, size_
                             ci = i;
                             cj = j;
                             print(std::cout << "collision" << "\n");
-                            exit_condition = 'c';
+                            exit_condition = 1;
                             return true;
                         }
                     }
@@ -122,43 +147,18 @@ void job(std::vector<std::array<Scalar, 3>> &combinations, size_t n_start, size_
                 return false;
             };
 
-           /* auto particle_ejected = [&ttp](auto &ptc, auto h)
-            {
-                //print(std::cout << ptc.time() << "<" << ttp <<'\n');
-                if (ptc.time() >  4 * ttp)
-                {
-                    print(std::cout << ptc.time() << ">" << ttp <<'\n');
-                    size_t particle_num = ptc.number();
-                    for (size_t i = 0; i < particle_num; ++i)
-                    {
-                        for (size_t j = i + 1; j < particle_num; ++j)
-                        {
+           /*auto gw_energy = [](auto &ptc, auto h){
+            e12 = orbit::E_tot(group(p1, p2));
+            e23 = orbit::E_tot(group(p2, p3));
+            print(std::cout << "e12:" << e12 << "\n");
+            print(std::cout << "e23:" << e23 <<"\n");
+            return false;
+           };
 
-                            auto total_mass = 30_Ms;
-                            auto u = total_mass * 1;
-                            auto dv = ptc.vel(i) - ptc.vel(j);
-                            auto dp = ptc.pos(i) - ptc.pos(j);
-                            auto v2 = pow(dv.x, 2) + pow(dv.y, 2) + pow(dv.z, 2);
-                            auto r = sqrt(pow(dp.x, 2) + pow(dp.y, 2) + pow(dp.z, 2));
-                            auto rv = dp.x * dv.x + dp.y * dv.y + dp.z * dv.z;
-                            auto ex = (dp.x * (v2 - u / r) - dv.x * rv) / u;
-                            auto ey = (dp.x * (v2 - u / r) - dv.y * rv) / u;
-                            auto ez = (dp.x * (v2 - u / r) - dv.z * rv) / u;
-                            auto escalar = sqrt(pow(ex, 2) + pow(ey, 2) + pow(ez, 2));
-                            print(std::cout << "e: " << escalar << '\n');
-                            if (escalar >= 1)
-                            {
-                                print(std::cout << "ejection: " << escalar << '\n');
-                                return true;
-                            }
-                        }
-                    }
-                }
-                return false;
-            };
-            */
+            args.add_stop_condition(gw_energy);*/
 
             args.add_stop_condition(t_end);
+            
 
             //args.add_stop_condition(particle_ejected);
 
@@ -172,33 +172,30 @@ void job(std::vector<std::array<Scalar, 3>> &combinations, size_t n_start, size_
             -2: Printout of b, f, i, (exit condition?)
             */
 
-            args.add_stop_point_operation([&ptc_res_file, &ordered_inputs_file, &b_i, &azi_j, &incl, &ci, &cj](auto &ptc, auto h)
+            args.add_stop_point_operation([&ptc_res_file, &errlog_file, &i, &bfi, &azi_j, &incl, &ci, &cj, &exit_condition, &t_end](auto &ptc, auto h)
                                           {
                                     // print the end state of the system into file
                                     // time,pxyz,vxyz for each particle in the system
-                                    ordered_inputs_file << '\n'
-                                                        << b_i << "," << azi_j << "," << incl << "," << ci << "," << cj << "\n";
-                                    ptc_res_file << ptc << ptc.time() << ",-2," << b_i << "," << azi_j << "," << incl << "," << ci << "," << cj << ",0,0\n" << '\n'; });
+                                    print(std::cout << "Simulation #" << i << "complete \n");
+                                    ptc_res_file << ptc << ptc.time() << ",-2," << bfi[0] << "," << azi_j << "," << incl << "," << exit_condition << "," << ci << "," << cj << ",0\n" << '\n'; });
             solver.run(args);
+            
         }
         catch (...)
-        {
-            // Flag these in case I want to plot/debug them in python
-            ptc_res_file << "-1," << b_i << "," << azi_j << "," << incl << ",0,0,0,0,0\n-1,0,0,0,0,0,0,0,0\n-1,0,0,0,0,0,0,0,0\n"
-                         << '\n';
-            print(std::cout << b_i << "," << azi_j << "," << incl << '\n');
+        {   
+            print(std::cout << b_i << "," << azi_j << "," << incl);
 
-            print(std::cout << "failed" << "\n");
+            print(std::cout << " failed" << "\n");
         }
-        print(std::cout, "job ", i, " finished\n");
+        //print(std::cout, "job ", i, " finished\n");
     }
 }
 
 int main(int argc, char **argv)
 {
 
-    Scalar b_min = -400_AU; // [-0.04, 0.04] Corresponds to [-4, 4] in the rescaled b parameter from paper for a0=10^-4
-    Scalar b_max = 400_AU;
+    Scalar b_min = -4_AU; // [-0.04, 0.04] Corresponds to [-4, 4] in the rescaled b parameter from paper for a0=10^-4
+    Scalar b_max = 4_AU;
     Scalar azi_max = 2 * consts::pi;
     Scalar azi_min = 0 * consts::pi;
 
@@ -207,7 +204,7 @@ int main(int argc, char **argv)
 
     // pre-fill column headers
 
-    size_t n = 100; // b-f grid size is n X n
+    size_t n = 300; // b-f grid size is n X n
 
     std::vector<std::array<Scalar, 3>> combinations;
 
@@ -239,7 +236,7 @@ int main(int argc, char **argv)
     tools::Timer timer; // Leaving in for fun
     timer.start();
 
-    size_t jobs_per_file = 500;
+    size_t jobs_per_file = 300;
     size_t num_combos = combinations.size();
     for (size_t i = 0; i < num_combos; i += jobs_per_file)
     {

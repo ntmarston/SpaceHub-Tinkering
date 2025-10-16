@@ -41,3 +41,5 @@ echo "----------------------------------------"
 
 # Run the compiled program
 "simulations/$FILENAME"
+
+cat simulation_results/mt_dump/fig2_ptc_*.txt > simulation_results/topology/fig2_ptc.dat

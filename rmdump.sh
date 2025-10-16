@@ -1,0 +1,1 @@
+rm simulation_results/mt_dump/*
