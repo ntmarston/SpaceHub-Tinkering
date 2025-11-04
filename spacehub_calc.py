@@ -568,6 +568,10 @@ class TwoBodyOrbit:
             HTML(ani.to_jshtml()) # For IPython notebooks
             ```
            Use HTML(ani.to_jshtml()) to render in IPython Notebooks
+           :arg fig, ax: mpl fig, ax objects to write the animation to
+           :arg start_index: Start frame index (Default 0)
+           :*arg frames: Number of frames to animate. File becomes large if not specified.
+           :*arg interval: ms elapsed between frames.
             
          """
 
@@ -634,6 +638,27 @@ class Theorize:
     def time_to_a_PN2p5(a_final):
         pass
 
+    @staticmethod
+    def distance(data, key, i, j):
+        if type(i) is int:
+            xi = data[key + 'x' + str(i)]
+            yi = data[key + 'y' + str(i)]
+            zi = data[key + 'z' + str(i)]
+        elif type(i) is tuple:
+            xi, yi, zi = get_com(data, key, i)
+        else:
+            print('wrong index type of i')
+
+        if type(j) is int:
+            xj = data[key + 'x' + str(j)]
+            yj = data[key + 'y' + str(j)]
+            zj = data[key + 'z' + str(j)]
+        elif type(j) is tuple:
+            xj, yj, zj = get_com(data, key, j)
+        else:
+            print('wrong index type of j')
+
+        return xi - xj, yi - yj, zi - zj
 
 #-----Helper/Standalone Functions Below-----
 #Calc functions
@@ -821,26 +846,7 @@ def get_L(data, i, j):
 
     return Lx, Ly, Lz
 
-def distance(data, key, i, j):
-    if type(i) is int:
-        xi = data[key + 'x' + str(i)]
-        yi = data[key + 'y' + str(i)]
-        zi = data[key + 'z' + str(i)]
-    elif type(i) is tuple:
-        xi, yi, zi = get_com(data, key, i)
-    else:
-        print('wrong index type of i')
 
-    if type(j) is int:
-        xj = data[key + 'x' + str(j)]
-        yj = data[key + 'y' + str(j)]
-        zj = data[key + 'z' + str(j)]
-    elif type(j) is tuple:
-        xj, yj, zj = get_com(data, key, j)
-    else:
-        print('wrong index type of j')
-
-    return xi - xj, yi - yj, zi - zj
 
 #----Things I wrote and don't know what to do with but they might be useful at some point----
 """def a_theory(t): from peters 5.45 for a *circular orbit*

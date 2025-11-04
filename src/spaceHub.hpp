@@ -52,6 +52,7 @@ License
 #include "integrator/Gauss-Radau.hpp"
 #include "integrator/symplectic/symplectic-integrator.hpp"
 #include "interaction/alpha-disk.hpp"
+#include "interaction/drag-forces.hpp"
 #include "interaction/magneto-disk.hpp"
 #include "interaction/newtonian.hpp"
 #include "interaction/post-newtonian.hpp"
