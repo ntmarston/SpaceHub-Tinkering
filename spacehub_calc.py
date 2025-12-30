@@ -8,8 +8,8 @@ from astropy import units as u
 from astropy.constants import G, c
 import matplotlib as mpl
 mpl.rcParams['animation.embed_limit'] = 250
-
-
+from astropy.units import Quantity, UnitTypeError
+from scipy.interpolate import PchipInterpolator
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -874,3 +874,36 @@ def load_spacehub_data(filename, dropna=True):
 
 
 #----To sort----
+def ensure_unit(x, unit: u.Unit):
+    """Internal method to ensure input units are correct
+    :param x: Value to check
+    :param unit: Desired astropy.units instance
+    """
+
+    if x is None:
+        return x
+    if not isinstance(x, Quantity):
+        x = x * unit
+    elif x.unit != unit:
+        try:
+            x = x.to(unit)
+        except u.UnitConversionError as uce:
+            raise u.UnitTypeError(f"{x} cannot be converted to {unit}")
+    return x
+
+def interp_intercept(x, y, intercept=0, npoints=1e3, returnCurves=False):
+    f = PchipInterpolator(x, y)
+    x_fine = np.linspace(min(x), max(x), int(npoints))
+    y_fine = f(x_fine)
+    offset = y_fine - intercept
+    idx_list = np.argwhere(np.diff(np.sign(offset))).flatten()
+    if len(idx_list) == 0:
+        print(f"No crossing found")
+        return [0,0]
+    
+    idx = idx_list[0]
+    point = [x_fine[idx], y_fine[idx]]
+    if returnCurves:
+        return point, x_fine, y_fine
+    else:
+        return point

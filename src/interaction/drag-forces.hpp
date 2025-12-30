@@ -54,15 +54,12 @@ namespace hub::force
         auto const &m = particles.mass();
         auto const &r = particles.radius();
 
-        
+        auto rho =  1e-12 * unit::kg/(unit::cm*unit::cm*unit::cm);
+        auto cs = 100_kms;
+        //auto cs = 6.2831853;
         // Taken from Yihan's Alpha disk model
-        auto I_sup = [](double M, double logR)
-        { return (0.5 * log(1 - 1 / M / M) + logR) / M / M; };
-        auto I_sub = [](double M)
-        { return (0.5 * log((1 + M) / (1 - M)) - M) / M / M; };
-
-
-        // Taken from Yihan's Alpha disk model blindly
+        auto I_sup = [](double M, double logR) { return (0.5 * log(1 - 1 / M / M) + logR) / M / M; };
+        auto I_sub = [](double M) { return (0.5 * log((1 + M) / (1 - M)) - M) / M / M; };
         auto dIdM_sup = [](double M, double logR) {
             return (-2 * logR + 1 / (M * M - 1) - log(1 - 1 / M / M)) / M / M / M;
         };
@@ -82,63 +79,68 @@ namespace hub::force
 
         auto tt = [&](double M)
         { return (M - x1) / (x2 - x1); };
-
-        auto connect = [&](double M) //Taylor approx?
+        //Newton's method?
+        auto connect = [&](double M) 
         {
             double t = tt(M);
             return (1 - t) * y1 + y2 * t + (1 - t) * t * (t * b + (1 - t) * a);
         };
 
-        for (size_t i = 1; i < num; ++i)
+  
+        for (size_t i = 0; i < num; ++i)
         {
             
-            auto dr = p[i] - p[0];
-            auto dv = v[i] - v[0];
-            auto v_rel = dv;
-            auto rho = 1; // assuming kg/m3
-            auto v2 = dot(v_rel, v_rel);
-            auto vmag = norm(v_rel);
-            auto grav_rad = consts::G * m[i]/(pow(vmag, 2));
-            auto r_eff = std::max(grav_rad, r[i]); //NOTE: Should always assume the gravitational radius >> physical radius? Valid for compact objects.
-            //Note ^ G ~= 1558.5 in the cursed units system (AU, Msun, 1yr=2pi)
+            auto dr = p[i];
+            auto dv = v[i];
             
-            auto cs = 0.58625_kms;
+            auto v_rel = dv;
+            
+
+            auto v2 = dot(v_rel, v_rel);
+            auto vmag = sqrt(v2); //must return positive
+            auto grav_rad = consts::G * m[i]/(pow(vmag, 2));
+            auto r_eff = r[i];//std::max(grav_rad, r[i]); //NOTE: Should always assume the gravitational radius >> physical radius? Valid for compact objects.
+                                                            //Note ^ G ~= 1558.5? in the cursed units system (AU, Msun, 1yr=2pi)
             auto Mach = vmag / cs;
 
             double I = 0;
 
             double f_total = 0;
 
-            if (Mach > 1 + eps){
+            if (Mach >= 1 + eps){
                 I = (0.5 * log(1 - 1 / (Mach * Mach)) + logR) / (Mach * Mach);
+                //std::cout << " " << particles.time() << "|" << "supersonic\n";
             }
             else if ((0.1 < Mach) && (Mach < 1 - eps)){
                 I = (0.5 * log((1 + Mach) / (1 - Mach)) - Mach) / (Mach * Mach);
+                //std::cout << " " << particles.time() << "|" << "subsonic\n";
             }
-            else if (Mach < 0.1){
+            else if (Mach <= 0.1){
                 I = Mach / 3.0;
+                //std::cout << " " << particles.time() << "|" << "low Mach\n";
             }
             else{
                 I = connect(Mach);
+                //std::cout << " " << particles.time() << "|" << "connect\n";
             }
 
             auto vesc = sqrt(2*consts::G*m[i] / r[i]);
             
 
-            double f_dyn = I * 4 * consts::pi * consts::G * consts::G * m[i] * m[i] * rho / pow(vmag, 3);
-            double f_aero = consts::pi * r_eff * r_eff * rho * vmag;
-            double f_bhdrag = 0; //4 * consts::pi * consts::G * consts::G * m[i] * m[i] * rho / pow(vmag, 3);
-            
-            if (pow(vmag, 2)/pow(vesc,2) <= 1){
-                f_total = f_dyn + f_bhdrag;
-            }
-            else{
-                f_total = f_aero + f_bhdrag;
-            }
-            
+            double f_dyn = I * 4 * consts::pi * consts::G * consts::G * m[i] * m[i] * rho / (cs * cs);
 
-            acceleration[i] -= f_total * v_rel / m[i];
-            acceleration[0] += f_total * v_rel / m[0];
+            double f_aero = consts::pi * r_eff * r_eff * rho * vmag; //Working as of 11/26/2025, do not break again
+
+            double f_HL = 4 * consts::pi * consts::G * consts::G * m[i] * m[i] * rho / (cs * cs);
+            double f_BH = f_HL * (pow(Mach, 2) / (1 + pow(Mach, 2) ) ) / pow(Mach, 2);
+            
+            
+            //f_total = f_dyn + f_aero + f_BH;
+            f_total = f_BH;
+            
+            //std::cout << "accel: " << (f_total * v_rel / m[i]) << "\n";
+            acceleration[i] -= f_total * v_rel / vmag / m[i];
+            
         }
     }
 

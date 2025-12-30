@@ -8,3 +8,29 @@ cmake-build-debug
 tutorial/
 simulation_results/
 __pycache__/
+
+# Compiled binaries (files without extensions)
+# This must come before specific extension patterns
+*
+!*/
+!*.*
+
+# Simulation output files
+*.csv
+*.dat
+*.txt
+output/
+**/output/
+
+# Image files
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.webp
+*.svg
+
+# PDF files
+*.pdf

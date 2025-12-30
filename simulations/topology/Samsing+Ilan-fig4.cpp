@@ -20,7 +20,7 @@ using Scalar = Solver::Scalar;
 void job(std::vector<std::array<Scalar, 3>> &combinations, size_t n_start, size_t n_stop)
 {
 
-    std::fstream ptc_res_file("simulation_results/mt_dump/fig2_ptc_" + std::to_string(n_start) + ".txt", std::ios::out);
+    std::fstream ptc_res_file("simulation_results/mt_dump/fig4_ptc_" + std::to_string(n_start) + ".txt", std::ios::out);
     std::fstream errlog_file("simulation_results/logs/errlog_" + std::to_string(n_start) + ".txt", std::ios::out);
     
 
@@ -32,9 +32,9 @@ void job(std::vector<std::array<Scalar, 3>> &combinations, size_t n_start, size_
     // IC statics
     Scalar Mijk = 10_Ms;
     Scalar Rsijk = 4.2450051e-5_Rs;
-    Scalar v_inf = 11.535562_kms; //Calculated in notebook
+    Scalar v_inf = 115.35562_kms; //Calculated in notebook
 
-    Scalar ab = 1e-2_AU;
+    Scalar ab = 1e-4_AU;
 
     Scalar b_i;
     Scalar azi_j;
@@ -239,8 +239,8 @@ void job(std::vector<std::array<Scalar, 3>> &combinations, size_t n_start, size_
 int main(int argc, char **argv)
 {
 
-    Scalar b_min = -4_AU; // [-0.04, 0.04] Corresponds to [-4, 4] in the rescaled b parameter from paper for a0=10^-4
-    Scalar b_max = 4_AU;
+    Scalar b_min = -0.04_AU; // [-0.04, 0.04] Corresponds to [-4, 4] in the rescaled b parameter from paper for a0=10^-4
+    Scalar b_max = 0.04_AU;
     Scalar azi_max = 2 * consts::pi;
     Scalar azi_min = 0 * consts::pi;
 
@@ -249,7 +249,7 @@ int main(int argc, char **argv)
 
     // pre-fill column headers
 
-    size_t n = 300; // b-f grid size is n X n
+    size_t n = 200; // b-f grid size is n X n
 
     std::vector<std::array<Scalar, 3>> combinations;
 
