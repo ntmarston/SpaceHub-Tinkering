@@ -55,7 +55,7 @@ namespace hub::force
         auto const &r = particles.radius();
 
         auto rho =  1e-12 * unit::kg/(unit::cm*unit::cm*unit::cm);
-        auto cs = 100_kms;
+        auto cs = 50_kms;
         //auto cs = 6.2831853;
         // Taken from Yihan's Alpha disk model
         auto I_sup = [](double M, double logR) { return (0.5 * log(1 - 1 / M / M) + logR) / M / M; };
@@ -135,8 +135,8 @@ namespace hub::force
             double f_BH = f_HL * (pow(Mach, 2) / (1 + pow(Mach, 2) ) ) / pow(Mach, 2);
             
             
-            //f_total = f_dyn + f_aero + f_BH;
-            f_total = f_BH;
+            f_total = f_dyn;// + f_aero + f_BH;
+            //f_total = f_BH;
             
             //std::cout << "accel: " << (f_total * v_rel / m[i]) << "\n";
             acceleration[i] -= f_total * v_rel / vmag / m[i];

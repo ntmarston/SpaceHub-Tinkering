@@ -20,8 +20,8 @@ int main(int argc, char** argv) {
 
     auto M2 = 1_Ms;
     auto R2 = 4.2450051e-6_Rs;
-    Particle p1{M2, R2, 0, 0, 0, 10_kms, 0, 0};
-    Particle p2{1_kg, 1_AU, 100,100,100,0,0,0};
+    Particle p1{M2, R2, 0, 0, 0, 25_kms, 0, 0};
+    Particle p2{1_kg, 0.01_AU, 100,100,100,0,0,0};
      auto orb = orbit::Elliptic(p1.mass, p2.mass, 3_AU, 0.0, 0_deg, 0_deg, 0_deg, 0_deg);
     orbit::move_particles(orb, p2);
 
@@ -40,7 +40,7 @@ int main(int argc, char** argv) {
     args.add_stop_condition(100_year);
 
     auto twriter = TimeSlice(DefaultWriter("sp.txt"), 0.0, 100_year, 50);
-    args.add_operation(DefaultWriter("sp.txt"));
+    args.add_operation(DefaultWriter("FdynSubsonicTest.txt"));
     
 
     solver.run(args);
@@ -49,3 +49,5 @@ int main(int argc, char** argv) {
 
     return 0;
 }
+//g++ -std=c++17 -O3 -pthread simulations/dragforces/singleparticle.cpp -o simulations/dragforces/singleparticle
+//simulations/dragforces/singleparticle

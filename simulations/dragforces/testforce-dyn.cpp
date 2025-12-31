@@ -17,13 +17,14 @@ int main(int argc, char** argv) {
 
     std::fstream energy_file("simulations/dragforces/energylog.txt", std::ios::out);
 
-    auto M1 = 0.4_Ms;
+    auto M1 = 1_Ms;
     //auto R1 = 0.00042450051_Rs;
     auto R1 = 12_km;
     auto M2 = 0.001_Ms;
     auto R2 = 4.2450051e-6_Rs;
     Particle p1{M1, R1, 0,0,0,100_kms,0,0};
     Particle p2{M2, R2, 0, 100, 0, 0, 0, 0};
+
 
     //auto orb = orbit::Elliptic(p1.mass, p2.mass, 100_AU, 0.0, 0_deg, 0_deg, 0_deg, 0_deg);
 
@@ -59,7 +60,7 @@ int main(int argc, char** argv) {
     //Solver: t_start, particle1, particle2, ...
     Solver solver{0, p1, p2};
     Solver::RunArgs args;
-    auto stop_time = 100_year;
+    auto stop_time = 800_year;
     args.add_stop_condition(stop_time);
 
     auto twriter = TimeSlice(DefaultWriter("testdynfriction.csv"), 0.0, stop_time, 500);

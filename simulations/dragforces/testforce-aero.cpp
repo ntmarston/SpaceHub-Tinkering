@@ -22,7 +22,7 @@ int main(int argc, char** argv) {
     auto R1 = 10_Rs;
     auto M2 = 0.001_Ms;
     auto R2 = 4.2450051e-6_Rs;
-    Particle p1{M1, R1, 0,0,0,10_kms,0,0};
+    Particle p1{M1, R1, 0,0,0,25_kms,0,0};
     Particle p2{M2, R2, 0, 100, 0, 0, 0, 0};
 
     //auto orb = orbit::Elliptic(p1.mass, p2.mass, 100_AU, 0.0, 0_deg, 0_deg, 0_deg, 0_deg);
@@ -62,7 +62,7 @@ int main(int argc, char** argv) {
     auto stop_time = 200_year;
     args.add_stop_condition(stop_time);
 
-    auto twriter = TimeSlice(DefaultWriter("1+negligible.csv"), 0.0, stop_time, 100);
+    auto twriter = TimeSlice(DefaultWriter("testFaero.csv"), 0.0, stop_time, 100);
     //auto eWriter = TimeSlice(energy_log, 0.0, 100.0, 50);
     args.add_operation(twriter);
     //args.add_operation(eWriter);
@@ -74,5 +74,5 @@ int main(int argc, char** argv) {
 
     return 0;
 }
-// g++ -std=c++17 -O3 -pthread simulations/dragforces/testforce-aero.cpp -o simulations/dragforces/testforce
-// simulations/dragforces/testforce
+// g++ -std=c++17 -O3 -pthread simulations/dragforces/testforce-aero.cpp -o simulations/dragforces/testforce-aero
+// simulations/dragforces/testforce-aero
