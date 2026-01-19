@@ -31,14 +31,16 @@ int main(int argc, char** argv) {
 
     /*--------------------------------------------------New-----------------------------------------------------------*/
     tools::Timer timer;  // use the timer in SpaceHub
-
+    int cond = 0;
     // capture the variable 'timer' by reference
     auto tick_tock = [&timer](auto& particles, auto step_size) -> bool {
         // if wall time get by 'get_time' is larger than 2 seconds
         if (timer.get_time() > 2) {
             return true;
+            cond = 1;
         } else {
             return false;
+            cond = 0;
         }
     };
 
@@ -52,5 +54,5 @@ int main(int argc, char** argv) {
 
     print(std::cout, "simulation of setting wall time complete!\n");
 
-    return 0;
+    return cond;
 }

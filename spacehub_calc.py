@@ -14,8 +14,32 @@ import warnings
 warnings.filterwarnings("ignore")
 
 class TwoBodyOrbit:
-    
-    #Expect deviations when using non-conservative methods (e.g. Post-Newtonian approximation)
+    """
+    Represents a two-body orbital system and computes Keplerian orbital elements.
+
+    Parses SpaceHub simulation output and calculates orbital parameters including
+    semi-major axis, eccentricity, inclination, and anomalies. Expects deviations
+    when using non-conservative methods (e.g. Post-Newtonian approximation).
+
+    @param filename: Path to the SpaceHub CSV output file.
+    @param i: Index of the primary mass object (default 0).
+    @param j: Index of the secondary mass object (default 1).
+
+    @attr npoints: Number of timesteps in the simulation.
+    @attr data: Pandas DataFrame containing raw simulation data.
+    @attr M_i: Mass of the primary object.
+    @attr M_j: Mass of the secondary object.
+    @attr time: List of simulation timestamps.
+    @attr R_vec: Relative position vector [X, Y, Z] components.
+    @attr V_vec: Relative velocity vector [vx, vy, vz] components.
+    @attr eccentricity: Scalar eccentricity at each timestep.
+    @attr semiMajorAxis: Semi-major axis at each timestep (AU).
+    @attr inclination_deg: Orbital inclination in degrees.
+    @attr LongitudeAscendingNode_deg: Longitude of ascending node in degrees.
+    @attr argument_of_periapsis_deg: Argument of periapsis in degrees.
+    @attr true_anomaly_deg: True anomaly in degrees.
+    @attr eccentric_anomaly_deg: Eccentric anomaly in degrees.
+    """
 
     npoints = 0
     data = None
@@ -65,37 +89,64 @@ class TwoBodyOrbit:
     points_per_orbit_avg = None
 
     #Setters and Update methods
-    
+
     def set_data(self, value):
+        """
+        Sets the simulation data after dropping NaN values.
+
+        @param value: Pandas DataFrame containing simulation output.
+        """
         self.data = value.dropna()
-    
+
     def set_npoints(self):
+        """
+        Determines the number of valid timesteps by taking the minimum
+        count between particles i and j. Sets self.npoints.
+        """
         timesteps0 = len(self.data[self.data["id"]==self.i]["time"])
         timesteps1 = len(self.data[self.data["id"]==self.j]["time"])
         self.npoints = min(timesteps0, timesteps1)
 
     def set_time(self):
+        """
+        Extracts the time column from the particle with fewer timesteps
+        to ensure array alignment. Sets self.time as a list.
+        """
         timesteps_i = len(self.data[self.data["id"]==self.i]["time"])
         timesteps_j = len(self.data[self.data["id"]==self.j]["time"])
         if timesteps_i < timesteps_j:
             col = self.data[self.data["id"]==self.i]["time"]
         else: #If they have the same number of timesteps, or if j has more
-            col = self.data[self.data["id"]==self.j]["time"] 
+            col = self.data[self.data["id"]==self.j]["time"]
 
-        
+
         self.time = col.to_list()
-        
+
     def set_ij(self, i, j):
+        """
+        Sets the primary and secondary particle indices.
+
+        @param i: Index of the primary mass object.
+        @param j: Index of the secondary mass object.
+        """
         self.i = i
         self.j = j
 
     def set_masses(self):
+        """
+        Retrieves and stores masses for particles i and j.
+        Sets self.M_i and self.M_j.
+        """
         mi = get_tot_mass(self.data, self.i)
         mj = get_tot_mass(self.data, self.j)
         self.M_i = mi
         self.M_j = mj
 
     def set_R_and_V(self):
+        """
+        Computes relative position and velocity vectors between particles i and j.
+        Sets self.R_vec, self.magR, and self.V_vec.
+        """
         data, i, j = self.data, self.i, self.j
         X, Y, Z = distance(data, 'p', i, j, self.npoints)
         magR = mag([X, Y, Z])
@@ -106,307 +157,244 @@ class TwoBodyOrbit:
         self.V_vec = [vx, vy, vz]
 
     def set_h_vector(self):
-        i = self.i
-        j = self.j
-        data = self.data
-        dx, dy, dz = distance(data, 'p', i, j, self.npoints)
-        dvx, dvy, dvz = distance(data, 'v', i, j, self.npoints)
-        self.hvec = calc_h_vector([dx, dy, dz], [dvx, dvy, dvz])
+        """
+        Computes the specific angular momentum vector h = r x v.
+        Sets self.hvec as [hx, hy, hz] component lists.
+        Requires set_R_and_V() to be called first.
+        """
+        self.hvec = calc_h_vector(self.R_vec, self.V_vec)
    
     def set_ecc_vector(self):
-        i = self.i
-        j = self.j
-        data = self.data
-        mi = get_tot_mass(data, i)
-        mj = get_tot_mass(data, j)
-        dx, dy, dz = distance(data, 'p', i, j, self.npoints)
-        dvx, dvy, dvz = distance(data, 'v', i, j, self.npoints)
+        """
+        Computes the eccentricity vector at each timestep.
+        Sets self.e_vec as [ex, ey, ez] arrays.
+        Requires set_R_and_V() and set_masses() to be called first.
+        """
+        m_tot = self.M_i + self.M_j
+        dx, dy, dz = np.asarray(self.R_vec[0]), np.asarray(self.R_vec[1]), np.asarray(self.R_vec[2])
+        dvx, dvy, dvz = np.asarray(self.V_vec[0]), np.asarray(self.V_vec[1]), np.asarray(self.V_vec[2])
 
-        ecx, ecy, ecz = [], [], []
-        for t in range(0, len(dx)):
-            ex, ey, ez = calc_ecc(mi + mj, dx[t], dy[t], dz[t], dvx[t], dvy[t], dvz[t])
-            ecx.append(ex)
-            ecy.append(ey)
-            ecz.append(ez)
-        
-        self.e_vec = [ecx, ecy, ecz]
-    
+        # Vectorized: calc_ecc already supports array operations
+        ex, ey, ez = calc_ecc(m_tot, dx, dy, dz, dvx, dvy, dvz)
+        self.e_vec = [ex, ey, ez]
+
     def set_N_vector(self):
-        
-            i = self.i
-            j = self.j
-            data = self.data
-            nxs, nys, nzs = [], [], []
-            N = []
-            for t in range(0, self.npoints):
-                try:
-                    r = [self.R_vec[0][t], self.R_vec[1][t], self.R_vec[2][t]]
-                    v = [self.V_vec[0][t], self.V_vec[1][t], self.V_vec[2][t]]
-                    h = np.cross(r,v)
-                    khat = [0,0,1]
-                    kcrossh = np.cross(khat, h)
-                    nx, ny, nz = kcrossh[0], kcrossh[1], kcrossh[2]
-                    nxs.append(nx)
-                    nys.append(ny)
-                    nzs.append(nz)
-                    N.append(mag([nx, ny, nz]))
-                except IndexError:
-                    print(f"{t}, {self.npoints}, {len(self.time)}, {len(self.R_vec[0])}, {len(self.R_vec[1])}, {len(self.R_vec[2])}")
-            self.N_vec = [nxs, nys, nzs]
-            self.magN = N
+        """
+        Computes the node vector N = k_hat x h at each timestep.
+        The node vector points toward the ascending node.
+        Sets self.N_vec and self.magN.
+        Requires set_h_vector() to be called first.
+        """
+        # Vectorized: stack h-vector components and use np.cross on full arrays
+        hx, hy, hz = np.asarray(self.hvec[0]), np.asarray(self.hvec[1]), np.asarray(self.hvec[2])
+        h_arr = np.column_stack([hx, hy, hz])
+        khat = np.array([0, 0, 1])
+
+        # np.cross broadcasts khat across all rows
+        N_arr = np.cross(khat, h_arr)
+
+        self.N_vec = [N_arr[:, 0], N_arr[:, 1], N_arr[:, 2]]
+        self.magN = np.sqrt(N_arr[:, 0]**2 + N_arr[:, 1]**2 + N_arr[:, 2]**2)
 
     rdebug = []
     v2debug = []
+
     def set_sma(self):
-        i = self.i
-        j = self.j
-        data = self.data
-        #Nearly Eq. 2.134 of Murray-Dermott
-        mi = get_tot_mass(data, i)
-        mj = get_tot_mass(data, j)
-        dx, dy, dz = distance(data, 'p', i, j, self.npoints)
-        dvx, dvy, dvz = distance(data, 'v', i, j, self.npoints)
-        
-        smas = []
-        for t in range(0, len(dx)):
-            a = calc_sma(mi + mj, dx[t], dy[t], dz[t], dvx[t], dvy[t], dvz[t])
-            smas.append(a)
-            self.rdebug.append(np.sqrt(dx[t] ** 2 + dy[t] ** 2 + dz[t] ** 2))
-            self.v2debug.append(dvx[t] ** 2 + dvy[t] ** 2 + dvz[t] ** 2)
-        self.semiMajorAxis = smas
+        """
+        Computes the semi-major axis at each timestep using the vis-viva equation.
+        Based on Murray-Dermott Eq. 2.134. Sets self.semiMajorAxis in AU.
+        Also populates rdebug and v2debug arrays for debugging.
+        Requires set_R_and_V() and set_masses() to be called first.
+        """
+        m_tot = self.M_i + self.M_j
+        dx, dy, dz = np.asarray(self.R_vec[0]), np.asarray(self.R_vec[1]), np.asarray(self.R_vec[2])
+        dvx, dvy, dvz = np.asarray(self.V_vec[0]), np.asarray(self.V_vec[1]), np.asarray(self.V_vec[2])
+
+        # Vectorized: calc_sma already supports array operations
+        self.semiMajorAxis = calc_sma(m_tot, dx, dy, dz, dvx, dvy, dvz)
+        self.rdebug = np.sqrt(dx**2 + dy**2 + dz**2)
+        self.v2debug = dvx**2 + dvy**2 + dvz**2
 
     def set_scalar_e(self):
-        i = self.i
-        j = self.j
-        data = self.data
-        #Eq 2.135 of Murray-Dermott
-        mi = get_tot_mass(data, i)
-        mj = get_tot_mass(data, j)
-        mu = (mi+mj) #* G.value
-        hvec = self.hvec
-        h = mag(hvec)
-        a = self.semiMajorAxis
+        """
+        Computes scalar eccentricity from angular momentum and semi-major axis.
+        Uses Murray-Dermott Eq. 2.135: e = sqrt(1 - h^2/(mu*a)).
+        Sets self.eccentricity as a NumPy array.
+        Requires set_masses(), set_h_vector(), and set_sma() to be called first.
+        """
+        mu = self.M_i + self.M_j
+        h = np.asarray(mag(self.hvec))
+        a = np.asarray(self.semiMajorAxis)
+        self.eccentricity = np.sqrt(1 - (h**2) / (mu * a))
 
-        e = []
-
-        for t in range(0, len(a)):
-            e.append(np.sqrt(1-(h[t]**2)/(mu * a[t])))
-        
-        self.eccentricity = e
-  
     def set_inclination(self):
-        i = self.i
-        j = self.j
-        data = self.data
-        #Eq 2.134 of Murray-Dermott
-        mi = get_tot_mass(data, i)
-        mj = get_tot_mass(data, j)
-        mu = (mi+mj) #* G.value
-        dx, dy, dz = distance(data, 'p', i, j, self.npoints)
-        dvx, dvy, dvz = distance(data, 'v', i, j, self.npoints)
-        hvec = calc_h_vector([dx, dy, dz], [dvx, dvy, dvz])
-        h = mag(hvec)
-        I = []
-        for t in range(0, len(h)):
-            I.append(np.arccos(hvec[2][t]/h[t]))
-        
-        self.inclination_rad = I
-        self.inclination_deg = np.rad2deg(I)
+        """
+        Computes orbital inclination as the angle between h-vector and z-axis.
+        Uses i = arccos(h_z / |h|). Sets self.inclination_rad and self.inclination_deg.
+        Requires set_h_vector() to be called first.
+        """
+        hz = np.asarray(self.hvec[2])
+        h = np.asarray(mag(self.hvec))
+        self.inclination_rad = np.arccos(hz / h)
+        self.inclination_deg = np.rad2deg(self.inclination_rad)
 
     def set_longitude_of_ascending_node(self):
-        i = self.i
-        j = self.j
-        data = self.data
+        """
+        Computes the longitude of the ascending node (Omega).
+        The angle is measured from the reference direction to the ascending node.
+        Sets self.LongitudeAscendingNode (rad), self.LongitudeAscendingNode_deg,
+        self.sinOmega, and self.cosOmega as NumPy arrays.
+        Requires set_h_vector() and set_inclination() to be called first.
 
-        #returns Omega, sinOmega, cosOmega
-        mi = get_tot_mass(data, i)
-        mj = get_tot_mass(data, j)
-        mu = (mi+mj) #* G.value
-        hvec = self.hvec
-        h = mag(hvec)
-        incl = self.inclination_rad
+        @throws AssertionError: If sin^2 + cos^2 deviates significantly from 1.
+        """
+        hx_raw = np.asarray(self.hvec[0])
+        hy_raw = np.asarray(self.hvec[1])
+        hz = np.asarray(self.hvec[2])
+        h = np.asarray(mag(self.hvec))
+        incl = np.asarray(self.inclination_rad)
 
-    
+        # Conditional sign flip based on hz
+        hx = np.where(hz > 0, hx_raw, -hx_raw)
+        hy = np.where(hz > 0, -hy_raw, hy_raw)
 
-        sines = []
-        cosines = []
-        Omegas = []
-        for t in range(0, self.npoints):
-            
-            if hvec[2][t] > 0:
-                hx = hvec[0][t]
-                hy = -1 * hvec[1][t]
-            else:
-                hx = -1 * hvec[0][t]
-                hy = hvec[1][t]
+        denom = h * np.sin(incl)
+        sines = hx / denom
+        cosines = hy / denom
 
-        
-            
-                
-            sines.append(hx / (h[t]*np.sin(incl[t])))
-            cosines.append(hy / (h[t]*np.sin(incl[t])))
+        Omegas = np.arcsin(sines)
+        # Handle NaN values with arccos fallback (negative sign is a hotfix from original)
+        Omegas = np.where(np.isnan(Omegas), -np.arccos(cosines), Omegas)
+        # Shift negative values to positive range
+        Omegas = np.where(Omegas < 0, 2*np.pi + Omegas, Omegas)
 
-            Omega_t = np.arcsin(hx / (h[t]*np.sin(incl[t])))
-            if np.isnan(Omega_t):
-                Omega_t = - np.arccos(hy / (h[t]*np.sin(incl[t]))) #negative sign is a hotfix
-                
-            if Omega_t < 0:
-                Omega_t = 2*np.pi + Omega_t
-            Omegas.append(Omega_t)
-            
+        # Checkpoint validation (skip where inclination is near zero)
+        valid_mask = np.abs(incl) >= 0.01
+        checksum = sines[valid_mask]**2 + cosines[valid_mask]**2
+        violations = np.abs(1 - checksum) >= 0.1
+        if np.any(violations):
+            bad_idx = np.where(valid_mask)[0][np.where(violations)[0][0]]
+            raise AssertionError(f"Checkpoint test failed in set_longitude_of_ascending_node. sin^2+cos^2 = {checksum[np.where(violations)[0][0]]} (pn: {bad_idx})")
 
-
-        #checkpoint
-        for t in range(0, self.npoints):
-            if np.abs(incl[t]) < 0.01: #Allow nan values if inclination is zero because Omega is then undefined
-                continue 
-            checksum = sines[t]**2 + cosines[t]**2
-            assert np.abs(1-checksum) < 0.1, f"Checkpoint test failed in set_longitude_of_ascending_node. sin^2+cos^2 = {checksum} (pn: {t})"
-        
         self.sinOmega = sines
         self.cosOmega = cosines
         self.LongitudeAscendingNode = Omegas
-        self.LongitudeAscendingNode_deg = [np.rad2deg(o) for o in Omegas]
+        self.LongitudeAscendingNode_deg = np.rad2deg(Omegas)
     
     def set_true_anomaly(self):
-        #Could not make the equations in Murray-Dermott cooperate with the way numpy trig functions work,
-        #So I am using the eccentricity vector to calculate it
-        evec = self.e_vec
-        rvec = self.R_vec
-        vvec = self.V_vec
-        f = []
-        fdeg = []
-        cosf = []
-        sinf = []
-        for t in range(0, self.npoints):
-            e = [evec[0][t], evec[1][t], evec[2][t]]
-            r = [rvec[0][t], rvec[1][t], rvec[2][t]]
-            v = [vvec[0][t], vvec[1][t], vvec[2][t]]
-            edotr = scalar_product_xyz(e, r)
-            mager = mag(e) * mag(r)
-            rdotv = scalar_product_xyz(r, v)
-            cosft = edotr/mager
-            if cosft > 1: #Added because precision in spacehub sometimes yields cosf ~1+1e-7 which causes numpy to crash
-                cosft = 1.0
+        """
+        Computes the true anomaly using the eccentricity vector method.
+        True anomaly f is the angle between periapsis and the current position.
+        Uses sign of r.v to determine quadrant.
+        Sets self.true_anomaly_rad, self.true_anomaly_deg, self.sinf, self.cosf as NumPy arrays.
+        """
+        ex, ey, ez = np.asarray(self.e_vec[0]), np.asarray(self.e_vec[1]), np.asarray(self.e_vec[2])
+        rx, ry, rz = np.asarray(self.R_vec[0]), np.asarray(self.R_vec[1]), np.asarray(self.R_vec[2])
+        vx, vy, vz = np.asarray(self.V_vec[0]), np.asarray(self.V_vec[1]), np.asarray(self.V_vec[2])
 
-            cosf.append(cosft)
+        edotr = ex*rx + ey*ry + ez*rz
+        mag_e = np.sqrt(ex**2 + ey**2 + ez**2)
+        mag_r = np.sqrt(rx**2 + ry**2 + rz**2)
+        rdotv = rx*vx + ry*vy + rz*vz
 
-            if rdotv > 0:
-                ft = np.arccos(cosft)
-            else:
-                ft = 2*np.pi - np.arccos(cosft)
-            
-            
-            sinf.append(np.sqrt(1-cosft**2))
-            fdeg.append(np.rad2deg(ft))
-            f.append(ft)
+        # Clip cosf to [-1, 1] to handle precision issues
+        cosf = np.clip(edotr / (mag_e * mag_r), -1, 1)
+
+        # Determine quadrant based on sign of r.v
+        f = np.where(rdotv > 0, np.arccos(cosf), 2*np.pi - np.arccos(cosf))
+        sinf = np.sqrt(1 - cosf**2)
 
         self.true_anomaly_rad = f
-        self.true_anomaly_deg = fdeg
+        self.true_anomaly_deg = np.rad2deg(f)
         self.sinf = sinf
         self.cosf = cosf
-    
-    def set_argument_of_periapsis(self):
-        evec = self.e_vec
-        escalars = self.eccentricity
-        peri = []
-        perideg = []
-        nvec = self.N_vec
-        N = self.magN
-        for t in range(0, self.npoints):
-            Nv = [nvec[0][t], nvec[1][t], nvec[2][t]]
-            e_vec = [evec[0][t], evec[1][t], evec[2][t]]
-            e = escalars[t]
-            Nt = N[t]
-            if e_vec[2] >= 0:
-                omega = np.arccos(np.dot(Nv, e_vec) / (Nt * e))
-            else:
-                omega = 2 * np.pi - np.arccos(np.dot(Nv, e_vec) / (Nt * e))
-            peri.append(omega)
-            perideg.append(np.rad2deg(omega))
 
-        self.argument_of_periapsis_rad = peri
-        self.argument_of_periapsis_deg = perideg
+    def set_argument_of_periapsis(self):
+        """
+        Computes the argument of periapsis (omega).
+        The angle from the ascending node to periapsis, measured in the orbital plane.
+        Uses sign of e_z to determine quadrant.
+        Sets self.argument_of_periapsis_rad and self.argument_of_periapsis_deg as NumPy arrays.
+        """
+        nx, ny, nz = np.asarray(self.N_vec[0]), np.asarray(self.N_vec[1]), np.asarray(self.N_vec[2])
+        ex, ey, ez = np.asarray(self.e_vec[0]), np.asarray(self.e_vec[1]), np.asarray(self.e_vec[2])
+        N_mag = np.asarray(self.magN)
+        e_scalar = np.asarray(self.eccentricity)
+
+        Ndote = nx*ex + ny*ey + nz*ez
+        cos_omega = Ndote / (N_mag * e_scalar)
+        omega = np.where(ez >= 0, np.arccos(cos_omega), 2*np.pi - np.arccos(cos_omega))
+
+        self.argument_of_periapsis_rad = omega
+        self.argument_of_periapsis_deg = np.rad2deg(omega)
 
     def set_eccentric_anomaly(self):
-        #Eq. 2.42 Murray-Dermott
-        vvec = self.V_vec
-        rvec = self.R_vec
-        r_list = self.magR
-        e_list = self.eccentricity
-        a_list = self.semiMajorAxis
-        eccentric_anomaly_rad = []
-        eccentric_anomaly_deg = []
-        for t in range(0, self.npoints):
-            rv = [rvec[0][t], rvec[1][t], rvec[2][t]]
-            vv = [vvec[0][t], vvec[1][t], vvec[2][t]]
-            rdotv = scalar_product_xyz(rv, vv)
-            r = r_list[t]
-            e = e_list[t]
-            a = a_list[t]
-            arg = (1/e)*(-r/a+1)
-            if rdotv > 0:
-                E = np.arccos(arg)
-            else:
-                E = 2*np.pi - np.arccos(arg)
-            eccentric_anomaly_rad.append(E)
-            eccentric_anomaly_deg.append(np.rad2deg(E))
-            
+        """
+        Computes the eccentric anomaly E from orbital elements.
+        Uses Murray-Dermott Eq. 2.42: r = a(1 - e*cos(E)).
+        Uses sign of r.v to determine quadrant.
+        Sets self.eccentric_anomaly_rad and self.eccentric_anomaly_deg as NumPy arrays.
+        """
+        rx, ry, rz = np.asarray(self.R_vec[0]), np.asarray(self.R_vec[1]), np.asarray(self.R_vec[2])
+        vx, vy, vz = np.asarray(self.V_vec[0]), np.asarray(self.V_vec[1]), np.asarray(self.V_vec[2])
+        r = np.asarray(self.magR)
+        e = np.asarray(self.eccentricity)
+        a = np.asarray(self.semiMajorAxis)
 
-        self.eccentric_anomaly_rad = eccentric_anomaly_rad
-        self.eccentric_anomaly_deg = eccentric_anomaly_deg
+        rdotv = rx*vx + ry*vy + rz*vz
+        arg = (1/e) * (-r/a + 1)
+        E = np.where(rdotv > 0, np.arccos(arg), 2*np.pi - np.arccos(arg))
+
+        self.eccentric_anomaly_rad = E
+        self.eccentric_anomaly_deg = np.rad2deg(E)
 
     def set_time_of_pericenter_passage(self):
-        Gvalue = 1
-        time = self.time
-        eccentricity = self.eccentricity
-        eccentric_anomaly = self.eccentric_anomaly_rad
-        semiMajor = self.semiMajorAxis
-        mi = get_tot_mass(self.data, self.i)
-        mj = get_tot_mass(self.data, self.j)
-        mu = (mi+mj) #* G.value
-        taus = []
-        for p in range(0, self.npoints):
-            t = time[p]
-            E = eccentric_anomaly[p]
-            e = eccentricity[p]
-            a = semiMajor[p]
-            tau = t - (E - e*np.sin(E))/np.sqrt(mu * a**(-3))
-            taus.append(tau)
-        
-        self.time_of_pericenter_passage = taus
-    
+        """
+        Computes the time of pericenter passage (tau) using Kepler's equation.
+        tau = t - (E - e*sin(E)) / n, where n = sqrt(mu/a^3).
+        Sets self.time_of_pericenter_passage as a NumPy array.
+
+        Requires set_masses() to be called first.
+        """
+        t = np.asarray(self.time)
+        E = np.asarray(self.eccentric_anomaly_rad)
+        e = np.asarray(self.eccentricity)
+        a = np.asarray(self.semiMajorAxis)
+        mu = self.M_i + self.M_j
+        self.time_of_pericenter_passage = t - (E - e*np.sin(E)) / np.sqrt(mu * a**(-3))
+
     def set_orbital_period(self, G=1):
-        #NOTE: Default is to use G=1
-        
-        P = []
-        for p in range(0, self.npoints):
-            a = self.semiMajorAxis[p]
-            period = 2*np.pi * (a**3 / (G * self.M_i))**(1/2)
-            P.append(period)
-        
-        self.orbital_period = P
+        """
+        Computes orbital period using Kepler's third law: P = 2*pi*sqrt(a^3/(G*M)).
+        WARNING: This calculation has not been fully validated.
 
+        @param G: Gravitational constant (default 1 for code units).
+        """
+        a = np.asarray(self.semiMajorAxis)
+        self.orbital_period = 2*np.pi * np.sqrt(a**3 / (G * self.M_i))
 
+    def set_c0(self, deviation_check=True):
+        """
+        Computes the Peters (1964) constant c0 from Eq. 5.48 for gravitational wave decay.
+        c0 = a*(1-e^2)*e^(-12/19)*(1 + 121/304*e^2)^(-870/2299).
+        Primarily for debugging PN2.5 simulations.
 
-
-    def set_c0(self, deviation_check = True): #find the constant c0 defined in Peters (1964) Eq. 5.48, Primarily for debugging purposes
-        aetup = [(self.semiMajorAxis[i], self.eccentricity[i]) for i in range(0, self.npoints)]
-        def calc_c0(tuple_list):
-            c0=[]
-            for pair in tuple_list:
-                a = pair[0]
-                e = pair[1]
-                c0i = a * (1-e**2) * (e**(-12/19)) * (1 + (121/304)*e**2 )**(-870/2299)
-                c0.append(c0i)
-            return c0
-        c0 = calc_c0(aetup)
+        @param deviation_check: If True, prints the range of c0 values (should be constant).
+        """
+        a = np.asarray(self.semiMajorAxis)
+        e = np.asarray(self.eccentricity)
+        c0 = a * (1 - e**2) * (e**(-12/19)) * (1 + (121/304)*e**2)**(-870/2299)
         if deviation_check:
-            amplitude = max(c0) - min(c0)
+            amplitude = np.max(c0) - np.min(c0)
             print(f"Calculated c0 values are within {amplitude:.4} of constant (maximum - minimum)")
         self.c0 = c0
 
     def set_points_per_orbit(self):
+        """
+        Calculates the number of simulation points per orbit by detecting
+        wrap-arounds in true anomaly. Sets self.points_per_orbit (array)
+        and self.points_per_orbit_avg (scalar mean).
+        """
         df = np.diff(self.true_anomaly_deg)
         indices = np.where(np.sign(df) < 0)[0]
         extremes_t = [self.time[i] for i in indices]
@@ -414,72 +402,84 @@ class TwoBodyOrbit:
         self.points_per_orbit = ppo
         self.points_per_orbit_avg = np.mean(ppo)
 
-    def __init__(self, filename, i, j):
-        
+    def __init__(self, filename, i=0, j=1):
+        """
+        Initializes a TwoBodyOrbit object from SpaceHub simulation output.
+        Automatically computes all orbital elements upon construction.
+
+        @param filename: Path to the SpaceHub CSV output file.
+        @param i: Index of the primary mass object (default 0).
+        @param j: Index of the secondary mass object (default 1).
+        """
         self.data = load_spacehub_data(filename)
         self.i = i
         self.j = j
         print("load data complete")
-        #set len and time
         print("Determining timesteps...")
         self.set_npoints()
         self.set_time()
-        #set R vec
         print("Calculating orbital state vectors...")
         self.set_R_and_V()
-        #Set mass attributes
         self.set_masses()
-        #set hvec
         self.set_h_vector()
-        #set N vec
         self.set_N_vector()
-        #solve eccentricity vector
         self.set_ecc_vector()
-        #solve Semi-major axis
         print("Calculating scalar orbital elements...")
         self.set_sma()
-        #solve eccentricity
         self.set_scalar_e()
-        #solve inclination
         self.set_inclination()
-        #solve longitude of ascending node
         self.set_longitude_of_ascending_node()
-        #solve true anomaly
         self.set_true_anomaly()
-        #solve argument of periapsis
         self.set_argument_of_periapsis()
-        #solve eccentric anomaly
         self.set_eccentric_anomaly()
-        #solve time of pericenter passage
         self.set_time_of_pericenter_passage()
-        #Set orbit point-wise resolution
         self.set_points_per_orbit()
-        #Set a-e relation constant c0 (Peters 1964 eq 5.48)
         self.set_c0()
         print("WARNING: Orbital period calculation has not been checked")
         self.set_orbital_period()
         print("Done")
-
-        
+    
+    #===============
+    #Output methods
+    #===============
 
     def __str__(self):
+        """
+        Returns a string representation of initial orbital conditions.
+
+        @return: Formatted string with t=0 orbital elements.
+        """
         outstr = ""
         outstr += (f"Initial (t=0) Conditions:" + "\n"
                    + f"a: {self.semiMajorAxis[0]}AU" + "\n"
                    + f"e: {self.eccentricity[0]}" + "\n"
-                   + f"i: {self.inclination_deg[0]}deg" + "\n" 
+                   + f"i: {self.inclination_deg[0]}deg" + "\n"
                    + f"Longtiude of Ascending Node: {self.LongitudeAscendingNode_deg[0]}deg" + "\n"
-                   + f"Argument of Periapsis: {self.argument_of_periapsis_deg[0]}deg" + "\n" 
+                   + f"Argument of Periapsis: {self.argument_of_periapsis_deg[0]}deg" + "\n"
                    + f"True Anomaly: {self.true_anomaly_deg[0]}deg" + "\n"
                    + f"Orbital Separation: {self.magR[0]}" + "\n")
         return outstr
 
     def to_pandas(self):
+        """
+        Exports orbital data to a Pandas DataFrame.
+
+        @return: DataFrame with orbital elements at each timestep.
+        @throws NotImplementedError: This method is not yet implemented.
+        """
         col_names = ["id", "x", "y", "z", "vx", "vy", "vz", "arg_of_peri_deg", "inclination_deg", "magN", "magR", "a", "true_anomaly_deg"]
         raise NotImplementedError("Not Implemented")
         pass
 
     def plot_orbit_3panel(self):
+        """
+        Creates a 3-panel visualization of the orbit.
+        Panel 1: 3D scatter plot of the orbit with coordinate axes.
+        Panel 2: X-Y projection (face-on view).
+        Panel 3: X-Z projection (edge-on view).
+
+        @return: Tuple of (fig, [ax0, ax1, ax2]) matplotlib objects.
+        """
         df, i, j = self.data, self.i, self.j
         fig = plt.figure(figsize=(15, 5))
         ax0 = fig.add_subplot(131, projection='3d')
@@ -492,8 +492,6 @@ class TwoBodyOrbit:
         #plot orbit of j around i
         ax0.scatter(self.R_vec[0], self.R_vec[1], self.R_vec[2], s=0.3, c='red', zorder=2, label="Secondary")
         ax0.scatter(0, 0, 0, s=3, c='blue', zorder=1, label="Primary")
-        #ax0.set_xlim(-8, 8)
-        #ax0.set_ylim(-8, 8)
         ax1.scatter(0, 0, s=3, c='blue', zorder=1, label="Primary")
         ax1.scatter(self.R_vec[0], self.R_vec[1], s=0.3, c='red', zorder=2, label="Secondary")
         ax1.grid(visible=True, zorder=-1)
@@ -506,74 +504,155 @@ class TwoBodyOrbit:
 
         return fig, [ax0, ax1, ax2]
     
-    def plot_keplerian_evolution_basic(self, xlim = [], time_stop=0):
-        #e, a, i, Omega, f, omega
-        if len(xlim) < 2:
-            xlim = [0, max(self.time)]
+    # Available plot types for plot_keplerian_evolution
+    PLOT_CONFIG = {
+        'e':     {'data': 'eccentricity',              'title': 'Eccentricity',                   'ylabel': r'$e$',            'ylim': (-0.1, 1)},
+        'a':     {'data': 'semiMajorAxis',             'title': 'Semi-major Axis',                'ylabel': r'$a$ (AU)',       'ylim': None, 'fmt': '%.2f'},
+        'i':     {'data': 'inclination_deg',           'title': 'Inclination',                    'ylabel': r'$i$ (deg)',      'ylim': (0, 360)},
+        'R':     {'data': 'magR',                      'title': 'Separation',                     'ylabel': r'$||R||$ (AU)',   'ylim': (0, 10)},
+        'Omega': {'data': 'LongitudeAscendingNode_deg','title': 'Longitude of Ascending Node',    'ylabel': r'$\Omega$ (deg)', 'ylim': (0, 360)},
+        'omega': {'data': 'argument_of_periapsis_deg', 'title': 'Argument of Periapsis',          'ylabel': r'$\omega$ (deg)', 'ylim': (0, 360)},
+        'f':     {'data': 'true_anomaly_deg',          'title': 'True Anomaly',                   'ylabel': r'$f$ (deg)',      'ylim': (0, 360)},
+        'E':     {'data': 'eccentric_anomaly_deg',     'title': 'Eccentric Anomaly',              'ylabel': r'$E$ (deg)',      'ylim': (0, 360)},
+    }
 
-        fig, axes = plt.subplots(2,3, figsize=(15, 10))
-        axs = axes.flatten()
-        axs[0].plot(self.time, self.eccentricity)
-        axs[0].set_ylim(-0.1, 1)
-        #axs[0].set_ylabel("Eccentricity")
-        axs[0].set_xlim(xlim)
-        axs[0].set_title("Eccentricity")
-        axs[0].set_ylabel(r"$e$")
-
-        axs[1].plot(self.time, self.inclination_deg)
-        axs[1].set_xlim(xlim)
-        axs[1].set_ylim(0, 360)
-        axs[1].set_title("Inclination")
-        axs[1].set_ylabel(r"$i$ (deg)")
-
-        axs[2].plot(self.time, self.magR)
-        axs[2].set_xlim(xlim)
-        axs[2].set_title("R (AU)")
-        axs[2].set_ylim(0, 10)
-        axs[2].set_title(r"Separation")
-        axs[2].set_ylabel(r"$||R||$ ($AU$)")
-
-        axs[3].plot(self.time, self.LongitudeAscendingNode_deg)
-        axs[3].set_title("")
-        axs[3].set_xlim(xlim)
-        axs[3].set_ylim(0, 360)
-        axs[3].set_ylabel(r"$\Omega$ (deg)")
-        axs[3].set_title(r"Longitude of Ascending Node")
-
-        axs[4].plot(self.time, self.semiMajorAxis)
-        axs[4].set_xlim(xlim)
-        #axs[4].set_ylim(0, 10)
-        axs[4].set_ylabel(r"$a$ (AU)")
-        axs[4].set_title(r"Semi-major Axis")
-        axs[4].yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+    def plot_keplerian_evolution(self, plots=('e', 'a', 'i', 'R'), xlim=None, ylim=None, figsize=None):
+        """
+        Plots up to 4 orbital elements in a grid.
         
-        axs[5].plot(self.time, self.argument_of_periapsis_deg)
-        axs[5].set_xlim(xlim)
-        axs[5].set_ylim(0, 360)
-        axs[5].set_ylabel(r"$\omega$ (deg)")
-        axs[5].set_title(r"Argument of Periapsis")
+        @param plots: Tuple/list of element keys to plot (1-4 elements).
+                      Options: 'e' (eccentricity), 'a' (semi-major axis),
+                      'i' (inclination), 'R' (separation), 'Omega' (longitude
+                      of ascending node), 'omega' (argument of periapsis),
+                      'f' (true anomaly), 'E' (eccentric anomaly).
+        @param xlim: Tuple (min, max) for x-axis limits. Defaults to full time range.
+        @param ylim: Controls y-axis scaling:
+                     - None (default): use preset limits from PLOT_CONFIG
+                     - False: auto-scale all plots (matplotlib default)
+                     - (min, max) tuple: apply same limits to all plots
+                     - List of tuples/None/False: per-plot limits, where
+                       None uses preset and False uses auto-scale
+        @param figsize: Tuple (width, height) for figure size. Defaults vary by layout.
+        @return: Tuple of (fig, axs) where axs is a list of Axes objects.
+        """
+        plots = list(plots)[:4]
+        n = len(plots)
+        xlim = xlim or (0, max(self.time))
 
-        for ax in axs:
-            ax.set_xlabel(r"$yr (2\pi)^{-1}$")
+        # Default figure sizes
+        default_sizes = {1: (6, 5), 2: (12, 5), 3: (12, 8), 4: (12, 8)}
+        figsize = figsize or default_sizes[n]
+
+        # Normalize ylim to a list of per-plot values
+        if ylim is None:
+            # Use presets for all
+            ylim_list = [None] * n
+        elif ylim is False:
+            # Auto-scale all
+            ylim_list = [False] * n
+        elif isinstance(ylim, list):
+            # Per-plot specification
+            ylim_list = ylim + [None] * (n - len(ylim))
+        else:
+            # Single tuple applies to all
+            ylim_list = [ylim] * n
+
+        # Create appropriate grid layout
+        if n == 1:
+            fig, ax = plt.subplots(1, 1, figsize=figsize)
+            axs = [ax]
+        elif n == 2:
+            fig, axs = plt.subplots(1, 2, figsize=figsize)
+            axs = list(axs)
+        elif n == 3:
+            fig = plt.figure(figsize=figsize)
+            axs = [
+                fig.add_subplot(2, 2, 1),
+                fig.add_subplot(2, 2, 2),
+                fig.add_subplot(2, 1, 2),  # Bottom row spans both columns
+            ]
+        else:  # n == 4
+            fig, axes = plt.subplots(2, 2, figsize=figsize)
+            axs = list(axes.flatten())
+
+        # Plot each element
+        for idx, (ax, key) in enumerate(zip(axs, plots)):
+            cfg = self.PLOT_CONFIG[key]
+            ax.plot(self.time, getattr(self, cfg['data']))
+            ax.set_xlim(xlim)
+            ax.set_title(cfg['title'])
+            ax.set_ylabel(cfg['ylabel'])
+            ax.set_xlabel(r'$yr (2\pi)^{-1}$')
+
+            # Determine ylim for this plot
+            plot_ylim = ylim_list[idx]
+            if plot_ylim is None:
+                # Use preset from config
+                if cfg['ylim']:
+                    ax.set_ylim(cfg['ylim'])
+            elif plot_ylim is not False:
+                # Use custom limits (False means auto-scale, so do nothing)
+                ax.set_ylim(plot_ylim)
+
+            if cfg.get('fmt'):
+                ax.yaxis.set_major_formatter(FormatStrFormatter(cfg['fmt']))
+
+        fig.tight_layout()
         return fig, axs
 
-    def plot_trajectory_3d(self, fig, ax, start_index = 0, *args, **kwargs):
+    def plot_keplerian_evolution_basic(self, xlim=None, time_stop=0):
         """
-            Runtime may be long if [interval=n1] and [frames=n2] are not specified
-            args and kwargs are passed directly to animation.FuncAnimation
-            pass fig, ax objects with 
-        ``` fig = plt.figure()
-            ax = fig.add_subplot(projection='3d') 
-            ani = orb.plot_trajectory_3d(fig, ax,...)
-            HTML(ani.to_jshtml()) # For IPython notebooks
-            ```
-           Use HTML(ani.to_jshtml()) to render in IPython Notebooks
-           :arg fig, ax: mpl fig, ax objects to write the animation to
-           :arg start_index: Start frame index (Default 0)
-           :*arg frames: Number of frames to animate. File becomes large if not specified.
-           :*arg interval: ms elapsed between frames.
-            
-         """
+        Plots all 6 standard orbital elements in a 2x3 grid layout.
+        Legacy method retained for backward compatibility.
+
+        Elements plotted: eccentricity, inclination, separation,
+        longitude of ascending node, semi-major axis, argument of periapsis.
+
+        @param xlim: Tuple (min, max) for x-axis limits. Defaults to full time range.
+        @param time_stop: Unused parameter (retained for backward compatibility).
+        @return: Tuple of (fig, axs) where axs is a flattened array of 6 Axes.
+        """
+        xlim = xlim or (0, max(self.time))
+        fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+        axs = axes.flatten()
+        plot_keys = ['e', 'i', 'R', 'Omega', 'a', 'omega']
+
+        for ax, key in zip(axs, plot_keys):
+            cfg = self.PLOT_CONFIG[key]
+            ax.plot(self.time, getattr(self, cfg['data']))
+            ax.set_xlim(xlim)
+            ax.set_title(cfg['title'])
+            ax.set_ylabel(cfg['ylabel'])
+            ax.set_xlabel(r'$yr (2\pi)^{-1}$')
+            if cfg['ylim']:
+                ax.set_ylim(cfg['ylim'])
+            if cfg.get('fmt'):
+                ax.yaxis.set_major_formatter(FormatStrFormatter(cfg['fmt']))
+
+        fig.tight_layout()
+        return fig, axs
+
+    def plot_trajectory_3d(self, fig, ax, start_index=0, *args, **kwargs):
+        """
+        Creates an animated 3D trajectory visualization of the orbit.
+
+        Runtime may be long if frames and interval are not specified.
+        Use HTML(ani.to_jshtml()) to render in IPython Notebooks.
+
+        Example usage:
+            fig = plt.figure()
+            ax = fig.add_subplot(projection='3d')
+            ani = orb.plot_trajectory_3d(fig, ax, frames=500, interval=20)
+            HTML(ani.to_jshtml())
+
+        @param fig: Matplotlib figure object to write the animation to.
+        @param ax: Matplotlib 3D axes object for plotting.
+        @param start_index: Starting frame index in the data (default 0).
+        @param args: Additional positional arguments passed to FuncAnimation.
+        @param kwargs: Additional keyword arguments passed to FuncAnimation.
+                       Common options: frames (int), interval (int, ms between frames).
+        @return: matplotlib.animation.FuncAnimation object.
+        """
 
         rx = self.R_vec[0][start_index:]
         ry = self.R_vec[1][start_index:]
@@ -609,37 +688,68 @@ class TwoBodyOrbit:
 
 
 class Theorize:
+    """
+    Provides theoretical calculations for gravitational wave orbital decay.
 
-
+    Contains static methods for computing Peters (1964) gravitational wave
+    inspiral formulas, including enhancement factors and decay timescales.
+    """
 
     def __init__(self):
+        """
+        Initializes a Theorize instance. Currently a placeholder for future expansion.
+        """
         pass
 
     @staticmethod
     def enhancement_factor(e):
+        """
+        Computes the Peters (1964) enhancement factor f(e) for gravitational wave emission.
+
+        The enhancement factor accounts for the increased gravitational wave
+        luminosity from eccentric orbits compared to circular orbits.
+
+        @param e: Orbital eccentricity (0 <= e < 1).
+        @return: Enhancement factor f(e) as a dimensionless float.
+        """
         sopra = 1 + (73/24)*e**2 + (37/96) * e**4
         sotto = (1-e**2)**(7/2)
         return sopra/sotto
 
     @staticmethod
     def decay_time_PN2p5(a0, m1, m2, e0):
-        """Assumes units a0: AU, M: Msun"""
-        #TODO import the ensure_units method I wrote for exosystem module
-        a0 = a0 * u.AU
-        m1 = m1 * u.Msun
-        m2 = m2 * u.Msun
-        beta = (64/5) * G**3 * m1 * m2 * (m1+m2) * c**(-5) #Idk if the c^-5 is supposed to be here, but it fixes the units. G and c are not hard to write. stop using G=C=1
+        """
+        Computes the gravitational wave inspiral time from Peters (1964).
+
+        Calculates the time for an eccentric binary to merge due to
+        gravitational wave emission at the 2.5 post-Newtonian order.
+
+        @param a0: Initial semi-major axis (AU or astropy Quantity).
+        @param m1: Mass of primary object (Msun or astropy Quantity).
+        @param m2: Mass of secondary object (Msun or astropy Quantity).
+        @param e0: Initial eccentricity.
+        @return: Decay time as astropy Quantity in years.
+        """
+        a0 = ensure_unit(a0, u.AU)
+        m1 = ensure_unit(m1, u.Msun)
+        m2 = ensure_unit(m2, u.Msun)
+        beta = (64/5) * G**3 * m1 * m2 * (m1+m2) * c**(-5)
         f = Theorize.enhancement_factor(e0)
 
         T = a0**4 / (4*beta*f)
         return T.to(u.yr)
 
     @staticmethod
-    def time_to_a_PN2p5(a_final):
-        pass
-
-    @staticmethod
     def distance(data, key, i, j):
+        """
+        Computes the relative distance vector between two particles or groups.
+
+        @param data: DataFrame with columns named as key+coord+id (e.g., 'px0').
+        @param key: Column prefix ('p' for position, 'v' for velocity).
+        @param i: Index of first particle (int) or tuple of indices for COM.
+        @param j: Index of second particle (int) or tuple of indices for COM.
+        @return: Tuple (dx, dy, dz) of relative coordinate arrays.
+        """
         if type(i) is int:
             xi = data[key + 'x' + str(i)]
             yi = data[key + 'y' + str(i)]
@@ -662,10 +772,32 @@ class Theorize:
 
 #-----Helper/Standalone Functions Below-----
 #Calc functions
+
 def calc_norm(x, y, z):
+    """
+    Computes the Euclidean norm of a 3D vector.
+
+    @param x: X component (scalar or array).
+    @param y: Y component (scalar or array).
+    @param z: Z component (scalar or array).
+    @return: Magnitude sqrt(x^2 + y^2 + z^2).
+    """
     return np.sqrt(x ** 2 + y ** 2 + z ** 2)
 
+
 def calc_ecc(m_tot, dx, dy, dz, dvx, dvy, dvz):
+    """
+    Computes the eccentricity vector components from state vectors.
+
+    @param m_tot: Total mass of the system (assumes G=1).
+    @param dx: Relative x position.
+    @param dy: Relative y position.
+    @param dz: Relative z position.
+    @param dvx: Relative x velocity.
+    @param dvy: Relative y velocity.
+    @param dvz: Relative z velocity.
+    @return: Tuple (ex, ey, ez) eccentricity vector components.
+    """
     u = m_tot * 1 #G.value
     v2 = dvx ** 2 + dvy ** 2 + dvz ** 2
     r = np.sqrt(dx ** 2 + dy ** 2 + dz ** 2)
@@ -676,14 +808,38 @@ def calc_ecc(m_tot, dx, dy, dz, dvx, dvy, dvz):
 
     return ex, ey, ez
 
+
 def calc_sma(m_tot, dx, dy, dz, dvx, dvy, dvz):
+    """
+    Computes the semi-major axis from state vectors using the vis-viva equation.
+
+    @param m_tot: Total mass of the system (assumes G=1).
+    @param dx: Relative x position.
+    @param dy: Relative y position.
+    @param dz: Relative z position.
+    @param dvx: Relative x velocity.
+    @param dvy: Relative y velocity.
+    @param dvz: Relative z velocity.
+    @return: Semi-major axis a = -mu*r / (r*v^2 - 2*mu).
+    """
     u = m_tot * 1 #G.value
     v2 = dvx ** 2 + dvy ** 2 + dvz ** 2
     r = np.sqrt(dx ** 2 + dy ** 2 + dz ** 2)
     return - u * r / (r * v2 - 2 * u)
 
+
 def calc_angle(x1, y1, z1, x2, y2, z2):
-    """Calc angle between two vectors"""
+    """
+    Computes the angle between two 3D vectors.
+
+    @param x1: X component of first vector.
+    @param y1: Y component of first vector.
+    @param z1: Z component of first vector.
+    @param x2: X component of second vector.
+    @param y2: Y component of second vector.
+    @param z2: Z component of second vector.
+    @return: Angle in radians between the two vectors.
+    """
     r1 = calc_norm(x1, y1, z1)
     r2 = calc_norm(x2, y2, z2)
     cos = (x1 * x2 + y1 * y2 + z1 * z2) / (r1 * r2)
@@ -691,6 +847,19 @@ def calc_angle(x1, y1, z1, x2, y2, z2):
 
 
 def calc_L(m1, m2, dx, dy, dz, dvx, dvy, dvz):
+    """
+    Computes the angular momentum vector components.
+
+    @param m1: Mass of first body.
+    @param m2: Mass of second body.
+    @param dx: Relative x position.
+    @param dy: Relative y position.
+    @param dz: Relative z position.
+    @param dvx: Relative x velocity.
+    @param dvy: Relative y velocity.
+    @param dvz: Relative z velocity.
+    @return: Tuple (Lx, Ly, Lz) angular momentum components scaled by reduced mass.
+    """
     m_nu = m1 * m2 / (m1 + m2)
     Lx = dy * dvz - dz * dvy
     Ly = dz * dvx - dx * dvz
@@ -698,7 +867,18 @@ def calc_L(m1, m2, dx, dy, dz, dvx, dvy, dvz):
 
     return m_nu * Lx, m_nu * Ly, m_nu * Lz
 
+
 def distance(data, key, i, j, npoints):
+    """
+    Computes relative position or velocity vectors between two particles.
+
+    @param data: DataFrame with particle data indexed by 'id' column.
+    @param key: Column prefix ('p' for position, 'v' for velocity).
+    @param i: Index of first particle (int) or tuple of indices for COM.
+    @param j: Index of second particle (int) or tuple of indices for COM.
+    @param npoints: Number of timesteps to process.
+    @return: Tuple (xdist, ydist, zdist) as lists of relative coordinates.
+    """
     if type(i) is int:
         xi = data[data["id"]==i][key + 'x']
         yi = data[data["id"]==i][key + 'y']
@@ -717,48 +897,40 @@ def distance(data, key, i, j, npoints):
     else:
         print('wrong index type of j')
 
-    #de-index to avoid nans
-    xdist, ydist, zdist = [], [], []
-    for t in range(0, npoints):
-        xdist.append(xi.iloc[t] - xj.iloc[t])
-        ydist.append(yi.iloc[t] - yj.iloc[t])
-        zdist.append(zi.iloc[t] - zj.iloc[t])
+    # Vectorized: use numpy array operations instead of loop
+    xdist = (xi.values - xj.values)[:npoints]
+    ydist = (yi.values - yj.values)[:npoints]
+    zdist = (zi.values - zj.values)[:npoints]
     return xdist, ydist, zdist
 
+
 def calc_h_vector(r, v):
-    #get h vector (Murray-Dermott eq 2.129) at a single point in time
-    x, y, z = r[0], r[1], r[2]
-    vx, vy, vz = v[0], v[1], v[2]
+    """
+    Computes the specific angular momentum vector h = r x v.
+    Based on Murray-Dermott Eq. 2.129.
 
-    if isinstance(x, numbers.Number):
-        hx = y*vz-z*vy
-        hy = z*vx - x*vz
-        hz = x*vy - y*vx
+    @param r: Position vector as [x, y, z] (scalars or arrays).
+    @param v: Velocity vector as [vx, vy, vz] (scalars or arrays).
+    @return: Tuple (hx, hy, hz) components as scalars or arrays.
+    """
+    x, y, z = np.asarray(r[0]), np.asarray(r[1]), np.asarray(r[2])
+    vx, vy, vz = np.asarray(v[0]), np.asarray(v[1]), np.asarray(v[2])
 
-        return hx, hy, hz
-
-    hx = []
-    hy = []
-    hz = []
-
-    for t in range(0, len(x)):
-        
-        hx.append(y[t]*vz[t]-z[t]*vy[t])
-        hy.append(z[t]*vx[t] - x[t]*vz[t])
-        hz.append(x[t]*vy[t] - y[t]*vx[t])
+    # Vectorized cross product components
+    hx = y*vz - z*vy
+    hy = z*vx - x*vz
+    hz = x*vy - y*vx
 
     return hx, hy, hz
 
+
 def get_tot_mass(data, tup):
-    """Get the total mass of one or more particles (passed as tuple or int)
+    """
+    Gets the total mass of one or more particles.
 
-    Args:
-        data (pd.DataFrame): The spacehub output dataframe created by load_spacehub_data
-        param2 (int or tuple): The index/indices of the particles to consider
-
-    Returns:
-        float: The total mass of the particle(s)
-
+    @param data: DataFrame created by load_spacehub_data.
+    @param tup: Particle index (int) or tuple of indices for multiple particles.
+    @return: Total mass of the specified particle(s).
     """
     if type(tup) is int:
         return data[data["id"]==tup]["mass"][tup]
@@ -768,9 +940,17 @@ def get_tot_mass(data, tup):
         for t in tup:
             mtot += data[data["id"]==t]["mass"][t]
         return mtot
-    
+
+
 def get_com(data, key, tup):
-    #get center of mass
+    """
+    Computes the center of mass position or velocity for a group of particles.
+
+    @param data: DataFrame with particle data.
+    @param key: Column prefix ('p' for position, 'v' for velocity).
+    @param tup: Tuple of particle indices to include in COM calculation.
+    @return: Tuple (x, y, z) of mass-weighted average coordinates.
+    """
     mt = get_tot_mass(data, tup)
 
     x = 0
@@ -784,27 +964,29 @@ def get_com(data, key, tup):
 
     return x/mt, y/mt, z/mt
 
+
 def mag(vec):
-    if isinstance(vec[0], numbers.Number):
-        square = 0
-        for a in vec:
-            square += a**2
+    """
+    Computes the magnitude of a 3D vector or array of vectors.
 
-        return np.sqrt(square)
-
-    mags = []
-    for t in range(0, len(vec[0])):
-        square = vec[0][t]**2 + vec[1][t]**2 + vec[2][t]**2
-        
-
-        mags.append(np.sqrt(square))
-
-    return mags
+    @param vec: Vector as [x, y, z] where components are scalars or arrays.
+    @return: Magnitude (scalar or array).
+    """
+    x, y, z = np.asarray(vec[0]), np.asarray(vec[1]), np.asarray(vec[2])
+    return np.sqrt(x**2 + y**2 + z**2)
 #-----------Getter/Modifier functions----------
 #
 #------------Helpers/Intermediates---------------
 
 def get_h_vector(data, i, j):
+    """
+    Computes the specific angular momentum vector from raw simulation data.
+
+    @param data: DataFrame with particle data.
+    @param i: Index of first particle (int) or tuple for COM.
+    @param j: Index of second particle (int) or tuple for COM.
+    @return: Tuple (hx, hy, hz) angular momentum vector components.
+    """
     dx, dy, dz = distance(data, 'p', i, j)
     dvx, dvy, dvz = distance(data, 'v', i, j)
     hvec = calc_h_vector([dx, dy, dz], [dvx, dvy, dvz])
@@ -813,7 +995,14 @@ def get_h_vector(data, i, j):
 
 
 def add_norms(data):
-    #adds norm column to output, is inplace
+    """
+    Adds magnitude columns 'p' and 'v' to the DataFrame in-place.
+
+    Computes position magnitude from (px, py, pz) and velocity magnitude
+    from (vx, vy, vz).
+
+    @param data: DataFrame to modify (modified in-place).
+    """
     p_num = data["id"].nunique()
     px = data['px']
     py = data['py']
@@ -825,13 +1014,28 @@ def add_norms(data):
     vz = data['vz']
     data['v'] = calc_norm(vx, vy, vz)
 
+
 def scalar_product_xyz(vec1, vec2):
-    #does not do lists
+    """
+    Computes the scalar (dot) product of two 3D vectors.
+    Does not support lists; use for single vectors only.
+
+    @param vec1: First vector as [x, y, z].
+    @param vec2: Second vector as [x, y, z].
+    @return: Scalar product vec1 . vec2.
+    """
     return vec1[0]*vec2[0] + vec1[1]*vec2[1] + vec1[2]*vec2[2]
 
-#---------Outputs/Keplerian Elements-----------
 
 def get_L(data, i, j):
+    """
+    Computes the angular momentum vector time series from simulation data.
+
+    @param data: DataFrame with particle data.
+    @param i: Index of first particle (int) or tuple for COM.
+    @param j: Index of second particle (int) or tuple for COM.
+    @return: Tuple (Lx, Ly, Lz) as lists of angular momentum components over time.
+    """
     mi = get_tot_mass(data, i)
     mj = get_tot_mass(data, j)
     dx, dy, dz = distance(data, 'p', i, j)
@@ -848,6 +1052,9 @@ def get_L(data, i, j):
 
 
 
+
+
+
 #----Things I wrote and don't know what to do with but they might be useful at some point----
 """def a_theory(t): from peters 5.45 for a *circular orbit*
     t = t * u.yr / (np.pi * 2)
@@ -861,25 +1068,37 @@ def get_L(data, i, j):
 
 
 #-------------Read/Write Operations--------------
-# Load DefaultWriter output
+
 def load_spacehub_data(filename, dropna=True):
-    #units: AU = 1, year = 2pi, G = 1
+    """
+    Loads SpaceHub DefaultWriter CSV output into a pandas DataFrame.
+
+    Units in SpaceHub: AU = 1, year = 2*pi, G = 1.
+    Automatically computes position and velocity magnitude columns.
+
+    @param filename: Path to the CSV file.
+    @param dropna: If True, removes rows with NaN values (default True).
+    @return: DataFrame with simulation data and added norm columns.
+    """
     df = pd.read_csv(filename)
     if dropna:
         df = df.dropna()
     add_norms(df)
-    
+
     return df
 
 
+#----Utility Functions----
 
-#----To sort----
 def ensure_unit(x, unit: u.Unit):
-    """Internal method to ensure input units are correct
-    :param x: Value to check
-    :param unit: Desired astropy.units instance
     """
+    Ensures a value has the correct astropy unit, converting if necessary.
 
+    @param x: Value to check (can be scalar, Quantity, or None).
+    @param unit: Desired astropy.units.Unit instance.
+    @return: Value as astropy Quantity with the specified unit.
+    @throws UnitTypeError: If the value cannot be converted to the target unit.
+    """
     if x is None:
         return x
     if not isinstance(x, Quantity):
@@ -891,7 +1110,23 @@ def ensure_unit(x, unit: u.Unit):
             raise u.UnitTypeError(f"{x} cannot be converted to {unit}")
     return x
 
+
 def interp_intercept(x, y, intercept=0, npoints=1e3, returnCurves=False):
+    """
+    Finds where an interpolated curve crosses a specified value.
+
+    Uses PCHIP (Piecewise Cubic Hermite Interpolating Polynomial) for
+    smooth interpolation and detects zero-crossings of (y - intercept).
+
+    @param x: Array of x-coordinates (independent variable).
+    @param y: Array of y-coordinates (dependent variable).
+    @param intercept: Target y-value to find crossing (default 0).
+    @param npoints: Number of points for interpolation grid (default 1000).
+    @param returnCurves: If True, also returns interpolated x and y arrays.
+    @return: If returnCurves=False, returns [x_crossing, y_crossing].
+             If returnCurves=True, returns (point, x_fine, y_fine).
+             Returns [0, 0] if no crossing is found.
+    """
     f = PchipInterpolator(x, y)
     x_fine = np.linspace(min(x), max(x), int(npoints))
     y_fine = f(x_fine)
@@ -900,7 +1135,7 @@ def interp_intercept(x, y, intercept=0, npoints=1e3, returnCurves=False):
     if len(idx_list) == 0:
         print(f"No crossing found")
         return [0,0]
-    
+
     idx = idx_list[0]
     point = [x_fine[idx], y_fine[idx]]
     if returnCurves:

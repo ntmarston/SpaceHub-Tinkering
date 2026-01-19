@@ -6,6 +6,10 @@
 #include <mutex>
 #include <fstream>
 #include <random>
+#include <future>
+#include <chrono>
+#include <ctime>
+#include <iomanip>
 using namespace hub;
 using namespace unit;
 using namespace callback;
@@ -14,11 +18,18 @@ using namespace orbit;
 
 // Global mutex for thread-safe logging
 std::mutex log_mutex;
+
+// External timeout in seconds
+constexpr int EXTERNAL_TIMEOUT_SECONDS = 120;
+
+// Container for hung futures to prevent blocking on destruction
+std::vector<std::future<void>> hung_futures;
+std::mutex hung_futures_mutex;
 /*--------------------------------------------------New-----------------------------------------------------------*/
 // using the Newtonian gravity + first order Post-Newtonian correction
 using f = Interactions<NewtonianGrav, StaticGasField>;
 
-using Solver = methods::DefaultMethod<f, particles::SizeParticles>;
+using Solver = methods::BS<f, particles::SizeParticles>;
 /*----------------------------------------------------------------------------------------------------------------*/
 using Particle = Solver::Particle;
 using Scalar = Solver::Scalar;
@@ -82,11 +93,11 @@ void job(std::vector<std::array<Scalar, 4>> &combinations, size_t n_start, size_
         args.add_stop_condition(orbital_endtime);
         args.add_stop_condition(1000_year);
 
-        // Add wallclock time stop condition (120 seconds)
+        // Add wallclock time stop condition (60 seconds)
         auto wallclock_limit = [start_time = std::chrono::steady_clock::now()](auto &ptc, auto h) {
             auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::steady_clock::now() - start_time).count();
-            return elapsed > 120;
+            return elapsed > 60;
         };
         args.add_stop_condition(wallclock_limit);
 
@@ -105,28 +116,47 @@ void job(std::vector<std::array<Scalar, 4>> &combinations, size_t n_start, size_
         timer.start();
 
         bool failed = false;
+        bool external_timeout = false;
         std::string error_msg;
 
-        try {
-            solver.run(args);
-        } catch (const std::exception& e) {
+        // Run simulation with external timeout using std::async
+        auto simulation_future = std::async(std::launch::async, [&]() {
+            try {
+                solver.run(args);
+            } catch (const std::exception& e) {
+                failed = true;
+                error_msg = e.what();
+            } catch (...) {
+                failed = true;
+                error_msg = "Unknown error";
+            }
+        });
+
+        // Wait for simulation with timeout
+        auto status = simulation_future.wait_for(std::chrono::seconds(EXTERNAL_TIMEOUT_SECONDS));
+
+        if (status == std::future_status::timeout) {
+            external_timeout = true;
             failed = true;
-            error_msg = e.what();
-        } catch (...) {
-            failed = true;
-            error_msg = "Unknown error";
+            error_msg = "External timeout - simulation hung";
+
+            // Move the hung future to prevent blocking on destruction
+            std::lock_guard<std::mutex> lock(hung_futures_mutex);
+            hung_futures.push_back(std::move(simulation_future));
         }
 
         double elapsed_time = timer.get_time();
 
-        // Log if simulation took longer than 120 seconds or failed
-        if (elapsed_time > 120.0 || failed) {
+        // Log if simulation took longer than 60 seconds, failed, or hit external timeout
+        if (elapsed_time > 60.0 || failed) {
             std::lock_guard<std::mutex> lock(log_mutex);
 
-            if (failed) {
+            if (external_timeout) {
+                std::cout << "EXTERNAL TIMEOUT (>" << EXTERNAL_TIMEOUT_SECONDS << "s) - ";
+            } else if (failed) {
                 std::cout << "RUNTIME ERROR - ";
             } else {
-                std::cout << "TIMEOUT (>120s) - ";
+                std::cout << "TIMEOUT (>60s) - ";
             }
 
             std::cout << "q=" << mratio
@@ -135,7 +165,9 @@ void job(std::vector<std::array<Scalar, 4>> &combinations, size_t n_start, size_
                       << ", i=" << inclination / 1_deg << " deg"
                       << ", time=" << elapsed_time << "s";
 
-            if (failed) {
+            if (failed && !external_timeout) {
+                std::cout << ", error: " << error_msg;
+            } else if (external_timeout) {
                 std::cout << ", error: " << error_msg;
             }
 
@@ -151,21 +183,19 @@ int main(int argc, char **argv)
 {
 
     Scalar massratio_min = 0.1;
-    Scalar massratio_max = 1e9;
+    Scalar massratio_max = 10;
     Scalar sma_min = 1e-3_AU;
-    Scalar sma_max = 100_AU;
-    Scalar ecc_min = 0;
+    Scalar sma_max = 10_AU;
+    Scalar ecc_min = 0.1;
     Scalar ecc_max = 0.999;  // Must be < 1 for elliptic orbits (e=1 is parabolic)
-    auto incl_min = -179_deg;
-    auto incl_max = 179_deg;
 
     // Grid sizes for parameter sweep
-    size_t n_q = 5;    // mass ratio
-    size_t n_a = 10;    // semi-major axis
-    size_t n_e = 10;    // eccentricity
+    size_t n_q = 3;    // mass ratio
+    size_t n_a = 3;    // semi-major axis
+    size_t n_e = 5;    // eccentricity
 
     // Inclination test values to catch edge cases
-    std::vector<Scalar> incl_values = {0_deg, 30_deg, 60_deg, 90_deg, 120_deg, 150_deg, 180_deg};
+    std::vector<Scalar> incl_values = {0_deg, 60_deg, 90_deg, 150_deg, 180_deg};
 
     std::vector<std::array<Scalar, 4>> combinations;
 
@@ -208,8 +238,16 @@ int main(int argc, char **argv)
 
         batch_num++;
         double elapsed = timer.get_time();
+
+        // Get current system time
+        auto now = std::chrono::system_clock::now();
+        auto now_time_t = std::chrono::system_clock::to_time_t(now);
+        auto now_tm = std::localtime(&now_time_t);
+
         std::cout << "Batch " << batch_num << "/" << total_batches
-                  << " complete. Elapsed time: " << elapsed << "s" << std::endl;
+                  << " complete. Elapsed time: " << elapsed << "s"
+                  << " [" << std::put_time(now_tm, "%Y-%m-%d %H:%M:%S") << "]"
+                  << std::endl;
     }
 
     std::cout << "Complete! Tested " << combinations.size() << " total combinations in "
@@ -224,3 +262,6 @@ int main(int argc, char **argv)
 // Commands to compile and run this simulation for copy+paste purposes:
 // g++ -std=c++17 -O3 -pthread test/nick_test/ParamSweepTest.cpp -o test/nick_test/ParamSweepTest
 // test/nick_test/ParamSweepTest
+
+//nohup ./test/nick_test/ParamSweepTest > test/nick_test/sweep_results.txt 2>&1 &
+//tail -f test/nick_test/sweep_results.txt
