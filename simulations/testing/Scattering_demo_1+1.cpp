@@ -1,5 +1,5 @@
 
-#include "../src/spaceHub.hpp"
+#include "../../SpaceHub/src/spaceHub.hpp"
 using namespace hub;
 using namespace unit;
 using namespace callback;
@@ -16,8 +16,8 @@ int main(int argc, char** argv) {
     Scalar r_start = 1000_AU;  // drop the incident object 100 AU away from the scattered object. The trajectory from
                               // +inf to r_start will be calculated analytically
 
-    std::fstream orb_res_file("simulation_results/scattering_demo_orbres.txt", std::ios::out);
-    std::fstream ptc_res_file("simulation_results/scattering_demo_ptcres.txt", std::ios::out);
+    std::fstream orb_res_file("simulations/testing/results/scattering_demo_orbres.txt", std::ios::out);
+    std::fstream ptc_res_file("simulations/testing/results/scattering_demo_ptcres.txt", std::ios::out);
 
     // pre-fill column headers
     print(orb_res_file, "m1,m2,slr,e,i,Omega,omega,nu", '\n');
@@ -69,7 +69,7 @@ int main(int argc, char** argv) {
             print(orb_res_file, i,',',b_i ,',', orb, '\n');
         });
 
-        auto t_writer = TimeSlice(DefaultWriter("simulation_results/Scattering_demo_1+1.txt"), 0.0, t_end, 1000);
+        auto t_writer = TimeSlice(DefaultWriter("simulations/testing/results/Scattering_demo_1+1.txt"), 0.0, t_end, 1000);
         args.add_operation(t_writer);
 
         solver.run(args);

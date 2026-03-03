@@ -1,0 +1,19 @@
+%=================================%
+\section{Torque convergence}
+\label{app:torque_converegence}
+%=================================%
+
+Extending our torque calculation to eccentric discs requires some care to ensure suitably converged results. Whilst in \paper1 we performed a convergence study which used the spatial wake morphology as the convergence metric, here we are interested in a robust quantitative convergence of the planet-induced torque. As discussed in Section \ref{subsubsection:convergence} we must consider convergence of $T_\textrm{net}$ in both $m$ and $l$. In particular the extension to higher $e$ runs requires the inclusion of a higher degree of `off-diagonal' modes with larger values of $|l-m|$. 
+
+Fig.~\ref{fig:convergence} characterises this convergence behaviour for the case of a supersonic eccentricity orbit $e=0.12$ ($\tilde e=2$), in a disc with $q=p=0.0$, $h_\textrm{p}=0.06$ and $b=0.3$. In the upper panel we plot a heat map which shows the error in the net torque $T_\textrm{error}$, where the x-axis denotes the number of included $m$ modes whilst the y-axis denotes the maximum order taken in $|l-m|$. Then $T_\textrm{error}$ is computed with respect to a reference value for which the maximum number of modes is included -- i.e. in this case the upper right of the plot where $m_\textrm{max}=175$ and $|l-m|_\textrm{max}=40$. One sees that there is a diagonal line tracing the steepest descent in error. By eye, this immediately suggests that $m > 100$ and $|l-m|>20$ is desired for decent results here. 
+
+We also examine slices through this convergence space. In the lower panel the red line shows the convergence in $m$ whilst holding $|l-m|=40$ (corresponding to the red, dashed line in the upper panel). Meanwhile the blue line shows the convergence in $|l-m|$ whilst $m=175$ is fixed (corresponding to the blue dashed line in the upper panel). Both exhibit a steep, exponential drop-off before beginning to level out. The clear flattening of the blue curve confirms that an upper value of $|l-m| = 40$ is more than enough. Meanwhile the red curve follows a shallower descent which has nearly levelled out but still retains a shallow gradient at the upper value of $m=175$. This slope is small however and suggests that additional values of $m$ will only make small differences. 
+
+Such a gradient descent is suggestive of some automated procedure for mode finding, where the $m$ and $|l-m|$ limits of the modes included in the calculation keep getting extended until some threshold in the slope is reached. Care must be taken for certain cases where the convergence structure might not be as simple as shown in this heat map and local minima can emerge. Such an automated procedure is left to future streamlined pipelines. Instead, inspection of a variety of runs (in particular those probing the most numerically challenging eccentricities) gives us confidence that $m_\textrm{max}=175$ and $|l-m|_\textrm{max}=40$ is sufficient for our purposes. In fact, for subsonic values of $e$, this pipeline demonstrates that a more truncated expansion in $m$ is sufficient and we employ $m_\textrm{max}=150$ for such $e$. Pushing to highly supersonic values of $e$, with $\Tilde{e}>2$, causes a much slower convergence which becomes numerically limiting for our present study.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\columnwidth]{Figures/convergence.pdf}
+    \caption{\textit{Upper panel}: heat map plotting the torque error, $T_\textrm{error}$, as a function of the number of included modes up to some upper limits in $m$ and $|l-m|$. $T_\textrm{error}$ is measured with respect to the limiting value in the upper right corner where $m=175$ and $|l-m|=40$. \textit{Lower panel}: plots slices through the heat map showing the convergence in $m$ for fixed $|l-m|=40$ (\textit{red line}) and $|l-m|$ for fixed $m=175$ (\textit{blue line}).}
+    \label{fig:convergence}
+\end{figure}

@@ -1,6 +1,6 @@
 
-#include "../src/spaceHub.hpp"
-#include "../src/rand-generator.hpp"
+#include "../SpaceHub/src/spaceHub.hpp"
+#include "../SpaceHub/src/rand-generator.hpp"
 using namespace hub;
 using namespace unit;
 using namespace callback;
@@ -15,9 +15,9 @@ int main(int argc, char** argv) {
     Scalar v_inf = 13.5_kms;
     Scalar r_start = 100_AU;
     Scalar ab = 15_AU;
-    std::fstream incident_orb_res_file("simulation_results/2+1_incident_orbres-2d.txt", std::ios::out);
-    std::fstream inner_orb_res_file("simulation_results/2+1_inner_orbres-2d.txt", std::ios::out);
-    std::fstream ptc_res_file("simulation_results/2+1_ptcres-2d.txt", std::ios::out);
+    std::fstream incident_orb_res_file("simulations/BasicScattering/results/2+1_incident_orbres-2d.txt", std::ios::out);
+    std::fstream inner_orb_res_file("simulations/BasicScattering/results/2+1_inner_orbres-2d.txt", std::ios::out);
+    std::fstream ptc_res_file("simulations/BasicScattering/results/2+1_ptcres-2d.txt", std::ios::out);
     // pre-fill column headers
     ptc_res_file << "time,id,mass,px,py,pz,vx,vy,vz" << '\n';
     incident_orb_res_file << "m1,m2,slr,e,i,Omega,omega,nu" << '\n';
@@ -97,7 +97,7 @@ int main(int argc, char** argv) {
             
             if(i==25 && j==25)
             {
-            auto writer = StepSlice(DefaultWriter("simulation_results/2+1_sample-2d.txt"), 5);
+            auto writer = StepSlice(DefaultWriter("simulations/BasicScattering/results/2+1_sample-2d.txt"), 5);
             args.add_operation(writer);
             }
 

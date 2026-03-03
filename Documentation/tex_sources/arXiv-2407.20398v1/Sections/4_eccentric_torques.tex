@@ -1,0 +1,169 @@
+%=================================%
+\section{Torque Results for Eccentric Planets}
+\label{sec:eccentric_torques}
+%=================================%
+
+% ---------------------------------- %
+\subsection{Parameter space and numerical considerations}
+\label{subsection:eccentric_parameter_space}
+% ---------------------------------- %
+
+With our machinery tested on circular orbits, we are now prepared to turn our attention to the case of eccentric planet-disc interaction. Once again, we are interested to see how the torques change as we vary the disc temperature and surface density profiles and so we adopt $q \in [0.0,0.25,0.5,0.75]$ and $p \in [0.0,0.5,1.0,1.5]$. We also vary the disc aspect ratio such that $h_\textrm{p} \in [0.06,0.08,0.1]$, although for much of the discussion we will focus on the results specific to $h_\textrm{p} = 0.06$. Throughout our main parameter study we maintain a softening coefficient of $b=0.3$, although we acknowledge this free choice is one of the main caveats of the 2D formalism.
+
+The relevant quantity which governs the nature of the interaction is the ratio $\tilde{e} \equiv e/h_\textrm{p}$. Indeed as $\tilde{e}$ exceeds unity, the planet will undergo transonic motion relative to the background gas, marking a distinct change in the wave excitation behaviour (see Section \ref{subsection:radial_torque_structure}). Thus we are particularly interested in probing this transition and as far beyond as possible. This turns out to be difficult for numerical reasons. 
+
+One way to increase $\tilde e$ is to boost planetary $e$, but this inevitably increases $|l-m|$ of the modes that must be included, which is challenging (see convergence behaviour in Section \ref{subsubsection:convergence} and Appendix \ref{app:torque_converegence}). Alternatively, one might increase $\tilde e$ by decreasing $h_\textrm{p}$, thus probing the transonic crossing for lower $e$ and hence requiring a reduced expansion in the off-diagonal elements $|l-m|$. However, there is inevitably a price to pay. As the aspect ratio decreases at fixed $\tilde e\sim 1$, so too must the associated transonic radial epicylic excursions of the planet as the distance between pericenter and apocenter $\sim 2H_\textrm{p}$ in this regime. In order to resolve this region without washing out the planetary potential perturbation, we must maintain the same softening parameter $b$ so the smoothing scale decreases as well. This renders the potential structure harder to resolve and demands more azimuthal modes $m$ to be included. 
+
+By experimenting with this trade-off, we found our lowest adopted value of $h_\textrm{p} = 0.06$ to be the optimal compromise for probing the transonic regime, for which we are able to obtain converged torques for $\tilde{e}$ ranging from $0$ to $2$. Here, the upper value of $\Tilde{e} = 2$ corresponds to the critical case for which the motion of the planet relative to the gas remains supersonic for all phases of the orbital motion.
+
+Across this $(N_q\times N_p \times N_h)=(4 \times 4 \times 3)$ disc parameter space we evaluate the mode structure for $e$ ranging between $0.0$ and $0.12$ in $0.01$ intervals. For $e \leq 0.06$ we find that $m_\textrm{max} = 150$ is sufficient. However, for $e > 0.06$ we include modes up to $m_\textrm{max} = 175$ to ensure convergence. In all cases we include off-diagonal temporal contributions up to $|l-m|_\textrm{max} = 40$. This means that for each net wake structure we need to compute $\mathcal{O}(10^4)$ individual modes. For a more quantitative discussion of convergence, we refer the reader to additional details in Appendix \ref{app:torque_converegence}.
+
+% ---------------------------------- %
+\subsection{Radial Torque Structure}
+\label{subsection:radial_torque_structure}
+% ---------------------------------- %
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{figure}
+    \centering
+    \includegraphics[width=\columnwidth]{Figures/time_dependent_torque_q_0.0_p_0.0.pdf}
+    \caption{The instantaneous, time-dependent radial torque density at 4 orbital phases of the planetary orbit (noted by the inset labels). The corresponding coloured dots denote the planetary radius at these times. The orbit-averaged torque density is also shown by the black dashed line.}
+    \label{fig:time_dependent_torque}
+\end{figure}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+To gain some intuition, we will first examine the particular case of a  globally isothermal ($q=0.0$) disc, with uniform surface density ($p=0.0$) and an aspect ratio of $h_\textrm{p} = 0.06$. For a non-zero eccentricity, the epicylic motion of the planet introduces a time-dependent wake, so the instantaneous torque also varies over the phase of the planetary orbit as predicted by equation \eqref{eq:time_dependent_dTdr}. This is visualised in Fig.~\ref{fig:time_dependent_torque} for $e = 0.01$, where the instantaneous radial torque density is plotted at 4 phases of the planetary orbit. The blue and green curves denote $dT/dr$ for the pericenter and apocenter times respectively (as indicated by the correspondingly coloured dots indicating the planetary position). Between these times, at quarter periods when the planet is crossing the guiding centre radius $r=a$, the torque density exhibits strong enhancements as the planet chases the exterior (interior) wave launched at pericenter (apocenter). However, for the remainder of this paper we are primarily interested in the epicyclic phase-averaged torque represented by the dashed black curve, which has a modest amplitude indicating that strong  cancellation of instantaneous torques takes place upon their integration  in the course of epicyclic motion. Also note that far from the planet, at $|r-a|\gg ea$, the instantaneous torque density becomes independent of the epicyclic phase, as expected.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{figure*}
+    \centering
+    \includegraphics[width=\textwidth]{Figures/torque_density_integrated_torque.pdf}
+    \caption{Orbit averaged torque profiles for example case of $p = 0.0$ and $q=0.0$ disc with $h_\textrm{p}=0.06$. \textit{Left panel (a)}: radial torque density $dT/dr$. \textit{Middle panel (b)}: Integrated torque $T$. The different lines correspond to varying eccentricities. The progression from cool to hot colours indicates an increase in $e$ from $0.0$ to $0.12$. \textit{Right panel (c)}: total torque decomposition as a function of eccentricity. The black, red and blue points denote the $T_\textrm{net}$, $T_\textrm{L}$ and $T_\textrm{C}$ respectively.}
+    \label{fig:torque_density_integrated_torque}
+\end{figure*}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+In Fig.~\ref{fig:torque_density_integrated_torque} we focus on the orbit-averaged torque characteristics, examining their variation as a function of planetary eccentricity $e$. In panels (a) and (b) we plot the radial torque density $dT/dr$ and the integrated torque $T(r)$ respectively. The different coloured lines denote the progression of $e$ from low (cool colours) to high (hot colours) values. Meanwhile in panel (c), we have decomposed the separate torque contributions in accordance with the method outlined in Section \ref{subsection:circular_theory}. The black, red and blue points denote $T_\textrm{net}$, $T_\textrm{L}$ and $T_\textrm{C}$ respectively as a function of $e$. 
+
+We immediately see the strong change in the radial structure of the averaged torque profile in panel (a). For low $e$, $dT/dr$ matches onto the circular profile with an approximately anti-symmetric structure in the inner and outer disc. As $e$ increases, the torque density begins to invert. By $e=0.05$, $dT/dr$ has levelled out as a stationary point of inflection in the vicinity of the guiding radius. As the eccentricity reaches the transonic value of $e = 0.06$ and beyond, the torque density slope becomes negative at $r=a$ so that positive torque is now injected into the inner disc and negative torque in the outer disc. Accordingly, the extrema of $dT/dr$ either side of the guiding radius have reversed in sign and drifted slightly away from $r = a$. One also notices the enhanced asymmetry in the profile for larger $e$, which leads to a more pronounced torque differential between the inner and outer disc. For the supersonic eccentricities, before the torque density levels out far from $r=a$, we also see that $dT/dr$ overshoots zero, which can be interpreted as a radially shifted and reduced version of the original peak from the low-$e$ profiles.
+
+These features are clearly borne out in the integrated torque profile $T(r)$ shown in panel (b). Recall that this quantity is the one-sided torque integrated from $r=a$, as defined according to equation \eqref{eq:one_sided_torque}, and so the net torque is easily extracted as the difference between the plateaued profile in the inner and outer disc. For low eccentricities, the saturated $T(r)$ values (measured far from $r=a$) have only a slight asymmetry leading to a small net torque on the disc and planet. As $\tilde{e}$ crosses unity, we see a rapid evolution in these plateaus as they both shift downwards before settling down into a new regime as $\Tilde{e}\rightarrow 2$. In this supersonic regime, the asymmetries are more pronounced and $T(r_\textrm{out}) < T(r_\textrm{in})$ so the torque differential has actually reversed in sign, as was first suggested by \cite{PapaloizouLarwood_2000}.
+
+In the panel (c) we have decomposed the full torque $T_\textrm{net}$ into the Lindblad and corotation contributions. We see that as $e$ exceeds 0.06, $T_\textrm{net}$ begins to turnover and shortly afterwards becomes negative. Towards the end of our computational range, the net torque appears to be saturating. The Lindblad torque closely traces this behaviour, meanwhile the corotation contribution weakly decays\footnote{This weakening of the corotation torque may be reminiscent of the shrinking of the horseshoe librating region around high-eccentricity planets in particle discs \citep{Namouni1999,Rafikov2003}.} with eccentricity while maintaining the same sign. As a result, for large eccentricities the net torque is dominated by the Lindblad component. 
+
+
+%---------------------------------%
+\subsection{Non-coorbital corotation resonant features}
+\label{subsection:non-coorbital resonances}
+%---------------------------------%
+
+In our torque decomposition pipeline we consider the corotation contributions from every $(m,l)$ combination. Generally $m \neq l$ and hence the pattern speed $\omega_{ml}\neq \Omega_\textrm{p}$. Therefore, in addition to the usual coorbital resonances associated with circular planetary orbits, there are also a host of non-coorbital corotation resonances at $r_{ml}$ such that $\omega_{ml}=\Omega(r_{ml})$. These are typically much weaker and subdominant compared with the coorbital and Lindblad torques. Nonetheless they can still be seen in our radial angular momentum profiles. In principle, since any $l/m$ ratio can excite a corotation response in a different location, the disc is densely populated with lots of little jumps which can superimpose (for commensurable modal ratios) or be finely spaced to give a complicated substructure.
+
+For illustration, in Fig.~\ref{fig:non_coorbital_features} we plot $F_{J}$ for the case of $q=p=0.0$, $h_\textrm{p}=0.06$ and a transonic eccentricity of $e=0.06$. The dashed red lines at $0.76314 a$ and $1.31037a$ denote the corotation resonances for the $(m,l) = (2,3)$ and $(3,2)$ modes respectively, whilst the middle dashed line emphasizes the usual coorbital location. The inset panels zoom in to the profiles at the non-coorbital locations. The expected coorbital angular momentum flux jump is clearly visible and dominates the linear corotation torque with an amplitude of $\sim 0.05 F_{J,0}$. However, the inset panels show clear discontinuities also at non-coorbital corotation resonances, with much smaller amplitudes of order $10^{-4} F_{J,0}$. Recalling that the Fourier potential expansion goes as $e^{|l-m|}$, non-coorbital modes are typically driven by the weaker perturbing components. This is compounded by the fact that the non-coorbital pattern speeds shift the resonance further away from the planet where the potential is weaker. These combined effects severely limit the influence of the non-coorbital contributions to the net torque. Nevertheless, collectively they are still very important to account for and ignoring them introduces significant errors. Indeed, for the case shown in Fig.~\ref{fig:non_coorbital_features} the coorbital $m=l$ corotation torques contribute 0.052 $F_{J,0}$ to the net corotation torque. Meanwhile, all the other non-coorbital $m \neq l$ terms contribute 0.009 $F_{J,0}$. This is $\sim 17\%$ of the total corotation torque and should not be disregarded.
+
+The continuous radial profile of the AMF in the vicinity of the coorbital location is also notably different for this eccentric case, compared with the circular examples shown in Fig.~\ref{fig:circular_morphology_torques}. In the circular cases, the AMF increases as one moves radially away from $r=a$. However, for this eccentric example the AMF actually decreases towards minima either side of the coorbital radius, before increasing again and plateauing further away from the planet. For globally isothermal discs recall that $dF_J/dr = dT/dr$ (see Section \ref{subsection:circular_wake_amf}) so the reversal in the flux profile is consistent with the torque behaviour seen in panels (a) and (b) of Fig.~\ref{fig:torque_density_integrated_torque} for $e = 0.06$.
+
+This decrease in the AMF and integrated torque about $r=a$ can be attributed to the fact that the eccentric orbit introduces pattern speeds which no longer move with the planetary mean motion. This results in some inner Lindblad resonances (which contribute a negative torque density) moving exterior to $a$ and outer Lindblad resonances (which contribute a positive torque density) moving towards the interior disc. Physically, \cite{PapaloizouLarwood_2000} interpret this effect as the fact that the planet trails the local gas flow at apocenter and leads it at pericenter, so the excited wake in these regions tends to pull on the planet and exert a torque in the opposite sense of the usually repulsive one-sided Linblad torques. The radial AMF structure here justifies this interpretation since the minimum turning points of $F_J$, either side of $r=a$, occur in the vicinity of the planetary apo/pericenters.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{figure}
+    \centering
+    \includegraphics[width=\columnwidth]{Figures/non_coorbital_features.pdf}
+    \caption{Radial profile of the angular momentum flux for a $q=p=0.0$, $h_\textrm{p}=0.06$ disc and a planet with transonic eccentricity of $e=0.06$. The red dashed lines denote, moving from left to right, the $l=3$  $m=2$, coorbital, and $l=2$ $m=3$ corotation resonances. The non-coorbital resonances are examined more closely via the zoomed in panels, revealing the small amplitude jumps of $F_J$ indicative of the corotation torques at these locations. See Section \ref{subsection:non-coorbital resonances} for more details.}
+    \label{fig:non_coorbital_features}
+\end{figure}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% ---------------------------------- %
+\subsection{Torque trends with $q$ and $p$}
+\label{subsection:torque_trends}
+% ---------------------------------- %
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{figure*}
+    \centering
+    \includegraphics[width=0.9\textwidth]{Figures/torque_eccentricity_h_0.06.pdf}
+    \caption{The torque decomposition as a function of eccentricity across a grid of disc properties $(q,p)$ for $h_\textrm{p}=0.06$. Each panel corresponds to a different $(q,p)$ with columns being labelled by $p\in[0.0,0.5,1.0,1.5]$ and rows being labelled by $q\in[0.0,0.25,0.5,0.75]$. The black, red and blue data points denote the value of $T_\textrm{net}$, $T_\textrm{L}$ and $T_\textrm{C}$, respectively, as a function of $e$, where the torques are all normalised by the characteristic value $F_{J,0}$. The vertical dashed line shows the transonic value of $e$ and the horizontal dashed line divides the torque reversal about $T$=0.}
+    \label{fig:torque_eccentricity_h_0.06}
+\end{figure*}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+In Fig.~\ref{fig:torque_eccentricity_h_0.06} we now plot the variation in the different torque components as a function of eccentricity for each of the runs across our $p$ and $q$ grid. Here we will first focus on the case of $h_\textrm{p} = 0.06$ which best allows us to probe the transonic transition. These figures have the same structure as the rightmost panel of Fig.~\ref{fig:torque_density_integrated_torque}. From this grid we can extract some qualitative trends. 
+
+In all cases the broad behaviour is similar to that discussed for the fiducial run discussed in Section \ref{subsection:radial_torque_structure} -- namely the torque reversal occurring at $\tilde{e}\sim 1$. This robustly extends the prediction of \cite{PapaloizouLarwood_2000} to a broader range of disc profiles. Furthermore, the Lindblad torque always tracks the behaviour of the net torque, with slight adjustments due to $T_\textrm{C}$ which presents a more gradual variation with eccentricity. In particular, for the globally isothermal disc in panel (d), where $q=0.0$ and surface density exponent $p=1.5$, the corotation contribution becomes 0 for all eccentricities as the vortensity gradient vanishes (see Section \ref{subsection:circular_wake_amf}). Contrastingly, as one considers higher $q$ exponents in the case of a uniform surface density disc, the effect of corotation is maximised for panel (m), with the blue points tracing a slightly curved profile with largest absolute magnitude for low $e$ before levelling off at larger $e$. It should be noted that even for discs where the vortensity gradient vanishes, the linear corotation torque is still non-zero in panels (h), (l) and (p) since the non-uniform temperature structure introduces an entropy gradient corotation contribution which is often over-looked \citep[e.g.][]{PaardekooperEtAl_2010}.
+
+A more pronounced qualitative feature is observed in the net and Lindblad torques as we push towards steeper surface density profiles with $p=1.5$ ----- the emergence of a bump around the transonic $e\approx h_\mathrm{p}$ value. This bump presents an enhancement in the positive torque enacted on the disc before the torque turns-over and reverses for larger $e$. For low eccentricities we see the same qualitative trends with $q$ and $p$ as for the circular planet case (see Fig.~\ref{fig:circular_torques}). That is, the net torque enacted on the disc increases with both $q$ and $p$. Meanwhile, for the high eccentricity regime where the net torque is negative, we see that as $p$ increases, $T_\mathrm{net}$ still increases and therefore reduces the absolute magnitude of the reversed planet-disc torque. Furthermore, as $q$ increases $T_\textrm{net}$ actually decreases very slightly for fixed $p$, although this subtle trend is difficult to discern in the figure.
+
+So far we have focused on the particular case of $h_\textrm{p} = 0.06$. However, our wider parameter space exploration also covers the torque behaviour for $h_\textrm{p} = 0.08$ and $h_\textrm{p} = 0.1$. In Appendix \ref{app:parameter_space}, we present figures analogous to Fig.~\ref{fig:torque_eccentricity_h_0.06} which display the torque components as a function of $e$ across $(q,p)$ space for these additional values of $h_\textrm{p}$. Since $h_\textrm{p}$ is larger in both of these cases, the same eccentricity range extends to smaller values in $\tilde{e}$ and hence the planet remains subsonic for larger values of $e$ than before. In these plots the transonic critical line has shifted to the right and the torque profiles appear qualitatively similar to before but stretched horizontally, so that the torque reversals and bumps associated with $\Tilde{e}\sim 1$ now occur for larger $e$. Furthermore, we notice that as $h_\textrm{p}$ is increased, the magnitude of the torque for any particular $e$ also increases, as might be anticipated from the behaviour for circular planets shown in Fig.~\ref{fig:circular_torques}.
+
+% ---------------------------------- %
+\subsection{Orbital evolution timescales}
+\label{subsection:orbital_evolution}
+% ---------------------------------- %
+
+For practical applications, we are interested in converting the torques discussed earlier into the orbital evolutionary timescales, which we do now. In particular, the change in angular momentum of the planet needs to be translated into changes in its semi-major axis and eccentricity. Indeed, the angular momentum of the planet is given by
+%
+\begin{equation}
+\label{eq:AM_planet}
+    L = M_\textrm{p}\sqrt{GM_* a (1-e^2)} = M_\textrm{p}\Omega_\textrm{p} a^2 \sqrt{1-e^2} ,
+\end{equation}
+%
+such that 
+%
+\begin{equation}
+\label{eq:L_a_e_evolution}
+    \frac{1}{L}\frac{dL}{dt} = \frac{1}{2a}\frac{da}{dt}-\frac{e}{1-e^2}\frac{de}{dt}.
+\end{equation}
+%
+Following \cite{IdaEtAl_2020} we define the inverse orbital evolution timescales
+%
+\begin{equation}
+\label{eq:inverse_timescales}
+    \tau_{L}^{-1} = -\frac{1}{L}\frac{dL}{dt} , \quad \tau_{a}^{-1} = -\frac{1}{a}\frac{da}{dt} , \quad \tau_{e}^{-1} = -\frac{1}{e}\frac{de}{dt},
+\end{equation}
+%
+such that equation \eqref{eq:L_a_e_evolution} becomes
+%
+\begin{equation}
+\label{eq:timescale_relation}
+    \tau_{L}^{-1} = \frac{1}{2}\tau_{a}^{-1}-\frac{e^2}{1-e^2}\tau_{e}^{-1}.
+\end{equation}
+%
+Note, that in previous literature the notation for the angular momentum damping rate is often given by $\tau_\textrm{m}^{-1}$ instead \cite[e.g.][]{PapaloizouLarwood_2000,IdaEtAl_2020}, where the subscript `\textrm{m}' misleadingly implies migration rate. We intentionally change this convention as the migration behaviour is more correctly described by the semi-major axis evolution rather than the angular momentum for the eccentric planetary orbit. These rates can be related to the torque quantities which we have previously computed. Recalling that $T_\textrm{net}$ is the net torque enacted on the disc, the back-reaction onto the planet gives $dL/dt = -T_\textrm{net}$ so
+%
+\begin{equation}
+\tau_{L}^{-1} = \frac{T_\textrm{net}}{L}.
+\end{equation}
+%
+Of course the planetary torques are equal to the magnitude of the disc torques but opposite in sign, in order to conserve the net angular momentum of the system. For the semi-major axis evolution, first consider the impact of individual modes separately. Each mode excites a response in the disc with a fixed pattern speed $\omega_{ml}$. This in turn corresponds to a gravitational potential perturbation acting back on the planet. A uniformly rotating perturbing potential is known to conserve the Jacobi integral $E_\textrm{J} = E-\omega_{ml}L$ where $E = -GM_* M_\textrm{p}/(2a)$. Therefore taking the temporal derivative leads to an energy evolution $dE/dt = -\omega_{ml}T_{\textrm{net},ml}$ which can be related to the semi-major axis evolution as
+%
+\begin{equation}
+    \tau_{a}^{-1} = \frac{2}{M_\textrm{p }a^2 \Omega_\textrm{p}^2}\sum_{m,l} \omega_{ml}T_{\textrm{net},ml},
+\end{equation}
+%
+upon summing all modal contributions. Finally, we obtain the eccentricity damping timescale $\tau_{e}^{-1}$, by simply rearranging equation \eqref{eq:timescale_relation}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{figure*}
+    \centering
+    \includegraphics[width=0.9\textwidth]{Figures/eccentric_timescales_h_0.06.pdf}
+    \caption{The orbital evolution timescales as a function of eccentricity across a grid of disc properties $(q,p)$ for $h_\textrm{p}=0.06$, as per Fig.~\ref{fig:torque_eccentricity_h_0.06}. The black, red and blue data points denote the value of $\tau_{L}^{-1}/\tau_{0}^{-1}$, $\tau_a^{-1}/\tau_{0}^{-1}$ and $\tau_\textrm{e}^{-1}/(100\tau_{0}^{-1})$, respectively, as a function of $e$. The vertical dashed line shows the transonic value of $e$ and the horizontal dashed line divides the torque reversal about $T$=0.}
+    \label{fig:eccentric_timescales_h_0.06}
+\end{figure*}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+Following this procedure we are able to extract the characteristic evolution timescales and plot them as functions of eccentricity in Fig.~\ref{fig:eccentric_timescales_h_0.06}. Akin to Fig.~\ref{fig:torque_eccentricity_h_0.06}, the grid of panels show the results for each $(q,p)$ combination of disc properties, with fixed $h_\textrm{p} = 0.06$. The black, red and blue curves now correspond to $\tau_{L}^{-1}$, $\tau_{a}^{-1}$ and $\tau_{e}^{-1}$ respectively. Note that the angular momentum and semi-major axis inverse timescales are normalised by the characteristic inverse timescale
+%
+\begin{equation}
+\label{eq:tau_0_inv}
+    \tau_{0}^{-1} = \frac{F_{J,0}}{M_\textrm{p}\Omega_\textrm{p} a^2}.
+\end{equation}
+%
+Meanwhile the eccentricity damping occurs much faster and is instead scaled by 100$\tau_{0}^{-1}$, allowing us to plot the results on the same axes.
+
+The profiles reveal some interesting behaviour. Since $\tau_{L}^{-1}$ is directly proportional to the net torque, these tracks simply follow the same trends as $T_\textrm{net}$ discussed in Section \ref{subsection:torque_trends}; namely the torque reversal is once again obvious for supersonic values of $e$. However, despite planetary angular momentum being increased in this regime, this increase notably does not directly translate into an immediate reversal of the direction of planetary migration, as emphasized recently by \cite{IdaEtAl_2020}. Indeed, since the angular momentum budget is dependent on both $a$ and $e$, a sufficiently fast damping of eccentricity can allow the angular momentum to increase even if $a$ is decreasing. As a result, in all panels, for eccentricities where the black line first reverses in sign, the semi-major axis evolution timescale remains positive and therefore still corresponds to inwards migration. In fact, inspection of the red points in Fig.~\ref{fig:eccentric_timescales_h_0.06} show that $\tau_{a}^{-1}$ actually peaks just beyond $\tilde{e} = 1$, underlining that the damping of semi-major axis is most efficient in this transonic regime. We see that this peak is strongest in panel (p) where the disc has the steepest surface density and temperature profiles. These peaks in $\tau_{L}^{-1}$ also roughly coincide with peaks in $\tau_{e}^{-1}$ which suggest a much more rapid eccentricity damping occurring on the order of 100 times faster (recall our choice of scalings). Beyond these peaks, towards higher eccentricity, both $\tau_{a}^{-1}$ and $\tau_{e}^{-1}$ turnover and start to decrease. 
+
+For discs with shallow surface density gradients, we observe that $a$ migration can in fact eventually reverse direction within the range of $e$ probed by our study (e.g. see the high eccentricity results in panel (m)). Such high-$e$ orbital expansion was first proposed by \cite{PapaloizouLarwood_2000} for the specific case study of a disc with $p=1.5$ but not found in subsequent studies (see discussion in Section \ref{subsection:previous_results}). Indeed we find that outwards migration actually occurs most readily in uniform surface density discs and that the methodology of \cite{PapaloizouLarwood_2000} produces order unity discrepancies which render it unreliable for predicting when such reversals actually take place. For the larger values of $p$, extrapolation of our results suggests that outwards migration may also be possible for even larger values of $e$ although the curves do appear to be levelling out. Meanwhile, $\tau_{e}^{-1}$ also turns over as the eccentricity damping becomes less efficient for higher $e$. Although our pipeline does not probe very large eccentricities, the downwards trends in $\tau_{e}^{-1}$ perhaps hint at eventual eccentricity pumping for highly supersonic values of $e$, as suggested by the gas dynamical friction approaches of \cite{BuehlerEtAl_2024} and \cite{ONeill2024}. However, it should be noted that these previous studies adopt a homogeneous and static gaseous background, which does not self-consistently incorporate the background Keplerian shear flow. In all parameter space panels, the shape of the eccentricity damping rate appears similar, suggesting that it is relatively insensitive to the choice of $q$ and $p$, in keeping with the findings of previous results \citep{Artymowicz_1993,TanakaEtAl_2002}.
+
+Once again, we also present the extended parameter space results for $h_\textrm{p} = 0.08$ and $0.1$ in Appendix \ref{app:parameter_space} where the shift in transonic eccentricity stretches the profiles towards higher $e$ in an approximately self-similar fashion. This means that the enhancements in eccentricity damping and inwards migration rate shift to higher values of eccentricity. Indeed, for the case of $h_\textrm{p} = 0.1$, $e$ is not extended to large enough values to capture the overturn in these peak rates. As per the increase in torques with larger $h_\textrm{p}$ seen in Fig.~\ref{fig:torque_eccentricity_h_0.06}, here we also note that the orbital evolution rates increase with $h_\textrm{p}$.

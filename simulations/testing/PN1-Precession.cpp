@@ -1,5 +1,5 @@
 
-#include "../src/spaceHub.hpp"
+#include "../../SpaceHub/src/spaceHub.hpp"
 using namespace hub;
 using namespace unit;
 using namespace callback;
@@ -29,9 +29,9 @@ int main(int argc, char** argv) {
 
     args.add_stop_condition(10000_year);
 
-    auto t_writer = TimeSlice(DefaultWriter("simulation_results/Result.txt"), 0.0, 10000_year, 1000);
+    auto t_writer = TimeSlice(DefaultWriter("simulations/testing/results/Result.txt"), 0.0, 10000_year, 1000);
 
-    //args.add_operation(DefaultWriter("simulation_results/Result.txt"));
+    //args.add_operation(DefaultWriter("simulations/testing/results/Result.txt"));
 
     
     args.add_operation(t_writer);

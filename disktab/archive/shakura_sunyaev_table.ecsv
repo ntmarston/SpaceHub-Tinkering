@@ -1,0 +1,62 @@
+# %ECSV 1.0
+# ---
+# datatype:
+# - {name: parameter, datatype: string}
+# - {name: symbol, datatype: string}
+# - {name: gal_value, datatype: float64}
+# - {name: gal_unit, datatype: string}
+# - {name: agn_value, datatype: float64}
+# - {name: agn_unit, datatype: string}
+# - {name: zone, datatype: string}
+# - {name: alpha_power, datatype: float64}
+# - {name: M_power, datatype: float64}
+# - {name: fMdot_power, datatype: float64}
+# - {name: r_power, datatype: float64}
+# meta:
+#   description: Shakura-Sunyaev disk solution (Table 3.1)
+#   scaling_note: 'Galactic: 1 Msun, 1e14 kg/s, GM/c^2; AGN: 1e8 Msun, 1e23 kg/s, GM/c^2'
+#   formula: 'parameter = (base_value) * alpha^(alpha_power) * M^(M_power) * (fMdot)^(fMdot_power) * r^(r_power)'
+parameter symbol gal_value gal_unit agn_value agn_unit zone alpha_power M_power fMdot_power r_power
+distance r 1.48 km 1.48e11 m 1-3 0.0 1.0 0.0 1.0
+disk_half_thickness h 1.59 km 1.59e12 m 1 0.0 0.0 1.0 0.0
+disk_half_thickness h 17.7 m 4.45e8 m 2 -0.1 0.7 0.2 1.05
+disk_half_thickness h 9.31 m 2.09e8 m 3 -0.1 0.75 0.15 1.125
+kepler_frequency Omega 2.03e5 1/s 2.03e-3 1/s 1-3 0.0 -1.0 0.0 -1.5
+period 2pi/Omega 3.1e-5 s 3100 s 1-3 0.0 1.0 0.0 1.5
+radial_time r/vr 1.27e-5 s 12.7 s 1 -1.0 3.0 -2.0 3.5
+radial_time r/vr 0.103 s 1.63e8 s 2 -0.8 1.6 -0.4 1.4
+radial_time r/vr 0.124 s 2.47e8 s 3 -0.8 1.5 -0.3 1.25
+radial_velocity vr 1.16e8 m/s 1.16e10 m/s 1 1.0 -2.0 2.0 -2.5
+radial_velocity vr 14400 m/s 908 m/s 2 0.8 -0.6 0.4 -0.4
+radial_velocity vr 11900 m/s 598 m/s 3 0.8 -0.5 0.3 -0.25
+mass_density rho 0.0291 kg/m3 2.91e-12 kg/m3 1 -1.0 1.0 -2.0 1.5
+mass_density rho 2.11e4 kg/m3 0.133 kg/m3 2 -0.7 -1.1 0.4 -1.65
+mass_density rho 4.85e4 kg/m3 0.432 kg/m3 3 -0.7 -1.25 0.55 -1.875
+surface_density Sigma 92.7 kg/m2 9.27 kg/m2 1 -1.0 1.0 -1.0 1.5
+surface_density Sigma 7.49e5 kg/m2 1.19e8 kg/m2 2 -0.8 -0.4 0.6 -0.6
+surface_density Sigma 9.03e5 kg/m2 1.80e8 kg/m2 3 -0.8 -0.5 0.7 -0.75
+total_pressure p 1.52e15 Pa 1.52e7 Pa 1 -1.0 -1.0 0.0 -1.5
+total_pressure p 1.37e17 Pa 5.44e10 Pa 2 -0.9 -1.7 0.8 -2.55
+total_pressure p 8.67e16 Pa 3.87e10 Pa 3 -0.9 -1.75 0.85 -2.625
+pressure_ratio pgas/prad 1.31e-5 dimensionless 1.31e-9 dimensionless 1 -0.25 1.75 -2.0 2.625
+pressure_ratio pgas/prad 0.0111 dimensionless 2.80e-4 dimensionless 2 -0.1 0.7 -0.8 1.05
+pressure_ratio pgas/prad 1.21 dimensionless 0.0855 dimensionless 3 -0.1 0.25 -0.35 0.375
+central_temperature T 4.96e7 K 4.96e5 K 1 -0.25 -0.25 0.0 -0.375
+central_temperature T 4.70e8 K 2.96e7 K 2 -0.2 -0.6 0.4 -0.9
+central_temperature T 1.30e8 K 6.51e6 K 3 -0.2 -0.5 0.3 -0.75
+surface_temperature Ts 4.00e9 K 5.17e8 K 1(MBB) 0.222 -1.111 0.889 -1.667
+surface_temperature Ts 1.99e8 K 2.21e6 K 2(MBB) 0.156 -0.644 0.356 -0.967
+surface_temperature Ts 5.43e7 K 9.65e5 K 3(BB) 0.0 -0.5 0.25 -0.75
+surface_flux Q 4.92e23 W/m2 4.92e16 W/m2 1-3 0.0 -2.0 1.0 -3.0
+optical_depth_scattering tau_es 1.85 dimensionless 0.185 dimensionless 1 -1.0 1.0 -1.0 1.5
+optical_depth_scattering tau_es 1.50e4 dimensionless 2.37e6 dimensionless 2 -0.8 -0.4 0.6 -0.6
+optical_depth_scattering tau_es 1.81e4 dimensionless 3.60e6 dimensionless 3 -0.8 -0.5 0.7 -0.75
+true_optical_depth tau_star 1.36e-4 dimensionless 4.32e-7 dimensionless 1 -1.0625 1.9375 -2.0 2.90625
+true_optical_depth tau_star 0.204 dimensionless 1.02e-7 dimensionless 2 -0.8 -0.9 0.1 0.15
+true_optical_depth tau_star 5.61 dimensionless 354 dimensionless 3 -0.8 0.0 0.2 0.0
+optical_depth_ratio tau_ff/tau_es 5.40e-9 dimensionless 5.40e-12 dimensionless 1 -0.125 1.875 -2.0 2.8125
+optical_depth_ratio tau_ff/tau_es 1.50e-6 dimensionless 1.50e-7 dimensionless 2 0.0 1.0 -1.0 1.5
+optical_depth_ratio tau_ff/tau_es 3.11e-4 dimensionless 9.82e-5 dimensionless 3 0.0 0.5 -0.5 0.75
+maximum_magnetic_field Bmax 6.18e4 T 6.18 T 1 0.0 -0.5 0.0 -0.75
+maximum_magnetic_field Bmax 5.86e5 T 370 T 2 0.05 -0.85 0.4 -1.275
+maximum_magnetic_field Bmax 4.67e5 T 312 T 3 -0.45 -0.875 0.425 -1.3125

@@ -5,9 +5,7 @@ build
 docs/html/
 docs/xml/
 cmake-build-debug
-tutorial/
 simulation_results/
-__pycache__/
 
 # Compiled binaries (files without extensions)
 # This must come before specific extension patterns
@@ -15,12 +13,23 @@ __pycache__/
 !*/
 !*.*
 
+# Re-ignore specific directories overriding !*/ above
+tutorial/
+__pycache__/
+.claude/
+
+# Backup files
+*.backup
+*.interp_backup
+
 # Simulation output files
-*.csv
 *.dat
-*.txt
+*.log
+energylog.txt
 output/
 **/output/
+**/results/
+misc_output/
 
 # Image files
 *.png

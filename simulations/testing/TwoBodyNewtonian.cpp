@@ -1,6 +1,6 @@
 
-#include "../../src/spaceHub.hpp"
-#include "../../src/orbits/orbits.hpp"
+#include "../../SpaceHub/src/spaceHub.hpp"
+#include "../../SpaceHub/src/orbits/orbits.hpp"
 using namespace hub;
 using namespace unit;
 using namespace callback;
@@ -79,7 +79,7 @@ int main(int argc, char** argv) {
 
 
 
-    args.add_operation(DefaultWriter("simulation_results/Result.txt"));
+    args.add_operation(DefaultWriter("simulations/testing/results/Result.txt"));
     //args.add_operation(StepSlice(check_elements, 20));
 
     solver.run(args);

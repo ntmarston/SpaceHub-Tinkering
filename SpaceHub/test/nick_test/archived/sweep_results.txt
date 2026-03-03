@@ -1,0 +1,39 @@
+nohup: ignoring input
+Running parameter sweep with 225 combinations...
+Grid: 3 mass ratios × 3 SMAs × 5 eccentricities × 5 inclinations
+Batch 1/15 complete. Elapsed time: 0.000822262s [2025-12-31 18:09:48]
+Batch 2/15 complete. Elapsed time: 141.227s [2025-12-31 18:12:09]
+Batch 3/15 complete. Elapsed time: 645.059s [2025-12-31 18:20:33]
+Batch 4/15 complete. Elapsed time: 645.416s [2025-12-31 18:20:33]
+Batch 5/15 complete. Elapsed time: 645.82s [2025-12-31 18:20:34]
+Batch 6/15 complete. Elapsed time: 645.822s [2025-12-31 18:20:34]
+Batch 7/15 complete. Elapsed time: 978.75s [2025-12-31 18:26:07]
+Batch 8/15 complete. Elapsed time: 1315.38s [2025-12-31 18:31:43]
+Batch 9/15 complete. Elapsed time: 1316.53s [2025-12-31 18:31:44]
+Batch 10/15 complete. Elapsed time: 1316.67s [2025-12-31 18:31:45]
+TIMEOUT (>60s) - q=10, a=0.1 AU, e=0.1, i=0 deg, time=61.0001s
+Batch 11/15 complete. Elapsed time: 1377.67s [2025-12-31 18:32:46]
+TIMEOUT (>60s) - q=10, a=0.1 AU, e=0.1, i=60 deg, time=61s
+TIMEOUT (>60s) - q=10, a=0.1 AU, e=0.1, i=90 deg, time=61s
+TIMEOUT (>60s) - q=10, a=0.1 AU, e=0.1, i=150 deg, time=61s
+TIMEOUT (>60s) - q=10, a=0.1 AU, e=0.1, i=180 deg, time=61.0001s
+TIMEOUT (>60s) - q=10, a=0.1 AU, e=0.32475, i=0 deg, time=61s
+TIMEOUT (>60s) - q=10, a=0.1 AU, e=0.32475, i=60 deg, time=61s
+TIMEOUT (>60s) - q=10, a=0.1 AU, e=0.32475, i=90 deg, time=61.0001s
+TIMEOUT (>60s) - q=10, a=0.1 AU, e=0.32475, i=150 deg, time=61s
+TIMEOUT (>60s) - q=10, a=0.1 AU, e=0.32475, i=180 deg, time=61s
+TIMEOUT (>60s) - q=10, a=0.1 AU, e=0.5495, i=0 deg, time=61.0001s
+TIMEOUT (>60s) - q=10, a=0.1 AU, e=0.5495, i=60 deg, time=61s
+TIMEOUT (>60s) - q=10, a=0.1 AU, e=0.5495, i=90 deg, time=61s
+TIMEOUT (>60s) - q=10, a=0.1 AU, e=0.5495, i=150 deg, time=61s
+TIMEOUT (>60s) - q=10, a=0.1 AU, e=0.5495, i=180 deg, time=61s
+TIMEOUT (>60s) - q=10, a=0.1 AU, e=0.77425, i=0 deg, time=61s
+TIMEOUT (>60s) - q=10, a=0.1 AU, e=0.77425, i=60 deg, time=61s
+Batch 12/15 complete. Elapsed time: 2353.67s [2025-12-31 18:49:02]
+TIMEOUT (>60s) - q=10, a=0.1 AU, e=0.77425, i=90 deg, time=61s
+TIMEOUT (>60s) - q=10, a=0.1 AU, e=0.77425, i=150 deg, time=61s
+TIMEOUT (>60s) - q=10, a=0.1 AU, e=0.77425, i=180 deg, time=61s
+Batch 13/15 complete. Elapsed time: 2538.27s [2025-12-31 18:52:06]
+Batch 14/15 complete. Elapsed time: 2542.77s [2025-12-31 18:52:11]
+Batch 15/15 complete. Elapsed time: 2542.78s [2025-12-31 18:52:11]
+Complete! Tested 225 total combinations in 2542.78s

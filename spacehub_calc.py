@@ -1,6 +1,9 @@
 import pandas as pd
 import numpy as np
 import numbers
+import time as time_module
+from io import StringIO
+from itertools import groupby
 from matplotlib import pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
 import matplotlib.animation as animation
@@ -10,7 +13,9 @@ import matplotlib as mpl
 mpl.rcParams['animation.embed_limit'] = 250
 from astropy.units import Quantity, UnitTypeError
 from scipy.interpolate import PchipInterpolator
+import seaborn as sns
 import warnings
+from IPython.display import HTML, display, clear_output
 warnings.filterwarnings("ignore")
 
 class TwoBodyOrbit:
@@ -313,17 +318,31 @@ class TwoBodyOrbit:
         """
         Computes the argument of periapsis (omega).
         The angle from the ascending node to periapsis, measured in the orbital plane.
-        Uses sign of e_z to determine quadrant.
+        Uses atan2 for numerical stability (avoids arccos singularity near 0/360 deg).
         Sets self.argument_of_periapsis_rad and self.argument_of_periapsis_deg as NumPy arrays.
         """
         nx, ny, nz = np.asarray(self.N_vec[0]), np.asarray(self.N_vec[1]), np.asarray(self.N_vec[2])
         ex, ey, ez = np.asarray(self.e_vec[0]), np.asarray(self.e_vec[1]), np.asarray(self.e_vec[2])
+        hx, hy, hz = np.asarray(self.hvec[0]), np.asarray(self.hvec[1]), np.asarray(self.hvec[2])
         N_mag = np.asarray(self.magN)
         e_scalar = np.asarray(self.eccentricity)
 
-        Ndote = nx*ex + ny*ey + nz*ez
-        cos_omega = Ndote / (N_mag * e_scalar)
-        omega = np.where(ez >= 0, np.arccos(cos_omega), 2*np.pi - np.arccos(cos_omega))
+        denom = N_mag * e_scalar
+
+        cos_omega = (nx*ex + ny*ey + nz*ez) / denom
+
+        # sin(omega) = (N x e) . h_hat / (|N| |e|)
+        cross_x = ny*ez - nz*ey
+        cross_y = nz*ex - nx*ez
+        cross_z = nx*ey - ny*ex
+        h_mag = np.sqrt(hx**2 + hy**2 + hz**2)
+        sin_omega = (cross_x*hx + cross_y*hy + cross_z*hz) / (denom * h_mag)
+
+        omega = np.arctan2(sin_omega, cos_omega)
+        omega = np.where(omega < 0, omega + 2*np.pi, omega)
+
+        # Unwrap to prevent discontinuities at 0/360 boundary
+        omega = np.unwrap(omega - np.pi) + np.pi
 
         self.argument_of_periapsis_rad = omega
         self.argument_of_periapsis_deg = np.rad2deg(omega)
@@ -402,7 +421,97 @@ class TwoBodyOrbit:
         self.points_per_orbit = ppo
         self.points_per_orbit_avg = np.mean(ppo)
 
-    def __init__(self, filename, i=0, j=1):
+    # Mapping of convenient parameter names to attribute names
+    PARAM_NAMES = {
+        'a': 'semiMajorAxis',
+        'sma': 'semiMajorAxis',
+        'semi_major_axis': 'semiMajorAxis',
+        'e': 'eccentricity',
+        'ecc': 'eccentricity',
+        'i': 'inclination_deg',
+        'inc': 'inclination_deg',
+        'inclination': 'inclination_deg',
+        'R': 'magR',
+        'r': 'magR',
+        'separation': 'magR',
+        'Omega': 'LongitudeAscendingNode_deg',
+        'omega': 'argument_of_periapsis_deg',
+        'f': 'true_anomaly_deg',
+        'E': 'eccentric_anomaly_deg',
+    }
+
+    def find_crossing(self, param, threshold, direction='any', find_all=False, npoints=1e4, years=False):
+        """
+        Finds the time(s) at which an orbital parameter crosses a specified threshold.
+
+        Uses PCHIP interpolation to find precise crossing times between simulation
+        timesteps. Can detect crossings from above, from below, or in either direction.
+
+        @param param: Orbital parameter to check. Can be:
+                      - Attribute name: 'semiMajorAxis', 'eccentricity', 'inclination_deg', etc.
+                      - Shorthand: 'a', 'e', 'i', 'R', 'Omega', 'omega', 'f', 'E'
+        @param threshold: Target value to find crossing(s) at.
+        @param direction: Which crossing direction to detect:
+                          - 'any': Either direction (default)
+                          - 'rising' or 'from_below': Parameter increasing through threshold
+                          - 'falling' or 'from_above': Parameter decreasing through threshold
+        @param find_all: If True, returns all crossings. If False, returns only the first (default False).
+        @param npoints: Number of interpolation points (default 10000).
+        @param in_years: If True, return time in years. If False, return in SpaceHub units (default False).
+        @return: If find_all=False: (time, value) tuple of first crossing, or (None, None) if not found.
+                 If find_all=True: List of (time, value) tuples for all crossings.
+
+        Example usage:
+            # Find when semi-major axis first crosses 0.8 AU
+            t, val = orb.find_crossing('a', 0.8)
+
+            # Find when eccentricity first crosses 0.5 from below
+            t, val = orb.find_crossing('e', 0.5, direction='rising')
+
+            # Find all times when separation crosses 1.0 AU
+            crossings = orb.find_crossing('R', 1.0, find_all=True)
+        """
+        # Resolve parameter name
+        attr_name = self.PARAM_NAMES.get(param, param)
+        if not hasattr(self, attr_name):
+            raise ValueError(f"Unknown parameter '{param}'. Available: {list(self.PARAM_NAMES.keys())} or any attribute name.")
+
+        y = np.asarray(getattr(self, attr_name))
+        x = np.asarray(self.time)
+
+        # Interpolate
+        f = PchipInterpolator(x, y)
+        x_fine = np.linspace(min(x), max(x), int(npoints))
+        y_fine = f(x_fine)
+
+        # Find crossings by detecting sign changes in (y - threshold)
+        offset = y_fine - threshold
+        sign_changes = np.diff(np.sign(offset))
+
+        # Determine which sign changes to consider based on direction
+        if direction in ('rising', 'from_below'):
+            # Sign changes from negative to positive (crossing upward)
+            idx_list = np.argwhere(sign_changes > 0).flatten()
+        elif direction in ('falling', 'from_above'):
+            # Sign changes from positive to negative (crossing downward)
+            idx_list = np.argwhere(sign_changes < 0).flatten()
+        else:  # 'any'
+            idx_list = np.argwhere(sign_changes != 0).flatten()
+
+        if len(idx_list) == 0:
+            if find_all:
+                return []
+            return (None, None)
+
+        scale = 1 / (2 * np.pi) if years else 1
+
+        if find_all:
+            return [(x_fine[idx] * scale, y_fine[idx]) for idx in idx_list]
+        else:
+            idx = idx_list[0]
+            return (x_fine[idx] * scale, y_fine[idx])
+
+    def __init__(self, filename, i=0, j=1, mute=False):
         """
         Initializes a TwoBodyOrbit object from SpaceHub simulation output.
         Automatically computes all orbital elements upon construction.
@@ -410,21 +519,26 @@ class TwoBodyOrbit:
         @param filename: Path to the SpaceHub CSV output file.
         @param i: Index of the primary mass object (default 0).
         @param j: Index of the secondary mass object (default 1).
+        @param mute: If True, suppresses print output during initialization (default False).
         """
         self.data = load_spacehub_data(filename)
         self.i = i
         self.j = j
-        print("load data complete")
-        print("Determining timesteps...")
+        if not mute:
+            print("load data complete")
+            print("Determining timesteps...")
         self.set_npoints()
         self.set_time()
-        print("Calculating orbital state vectors...")
+        self.years = np.asarray(self.time) / (2 * np.pi)
+        if not mute:
+            print("Calculating orbital state vectors...")
         self.set_R_and_V()
         self.set_masses()
         self.set_h_vector()
         self.set_N_vector()
         self.set_ecc_vector()
-        print("Calculating scalar orbital elements...")
+        if not mute:
+            print("Calculating scalar orbital elements...")
         self.set_sma()
         self.set_scalar_e()
         self.set_inclination()
@@ -435,10 +549,57 @@ class TwoBodyOrbit:
         self.set_time_of_pericenter_passage()
         self.set_points_per_orbit()
         self.set_c0()
-        print("WARNING: Orbital period calculation has not been checked")
+        if not mute:
+            print("WARNING: Orbital period calculation has not been checked")
         self.set_orbital_period()
-        print("Done")
-    
+        if not mute:
+            print("Done")
+
+    @classmethod
+    def from_dataframe(cls, df, i=0, j=1, mute=True):
+        """
+        Constructs a TwoBodyOrbit from an existing DataFrame, bypassing file I/O.
+        Intended for use with live-read data from load_spacehub_data_live().
+
+        @param df: Pandas DataFrame in SpaceHub format (with norm columns already added).
+        @param i: Index of the primary mass object (default 0).
+        @param j: Index of the secondary mass object (default 1).
+        @param mute: If True, suppresses print output (default True).
+        @return: TwoBodyOrbit instance with all orbital elements computed.
+        """
+        obj = cls.__new__(cls)
+        obj.data = df.dropna()
+        obj.i = i
+        obj.j = j
+        if not mute:
+            print("Determining timesteps...")
+        obj.set_npoints()
+        obj.set_time()
+        obj.years = np.asarray(obj.time) / (2 * np.pi)
+        if not mute:
+            print("Calculating orbital state vectors...")
+        obj.set_R_and_V()
+        obj.set_masses()
+        obj.set_h_vector()
+        obj.set_N_vector()
+        obj.set_ecc_vector()
+        if not mute:
+            print("Calculating scalar orbital elements...")
+        obj.set_sma()
+        obj.set_scalar_e()
+        obj.set_inclination()
+        obj.set_longitude_of_ascending_node()
+        obj.set_true_anomaly()
+        obj.set_argument_of_periapsis()
+        obj.set_eccentric_anomaly()
+        obj.set_time_of_pericenter_passage()
+        obj.set_points_per_orbit()
+        obj.set_c0()
+        obj.set_orbital_period()
+        if not mute:
+            print("Done")
+        return obj
+
     #===============
     #Output methods
     #===============
@@ -687,6 +848,412 @@ class TwoBodyOrbit:
 
 
 
+
+
+class NBodyVisualizer:
+    """
+    Visualizer for N-body SpaceHub simulation outputs.
+
+    Loads and organizes particle data from SpaceHub CSV output for easy
+    access and visualization. Supports arbitrary numbers of particles.
+
+    @param filename: Path to the SpaceHub CSV output file.
+
+    @attr n_particles: Number of particles in the simulation.
+    @attr npoints: Number of timesteps in the simulation.
+    @attr time: NumPy array of simulation timestamps.
+    @attr masses: NumPy array of particle masses indexed by particle ID.
+    @attr positions: Dict mapping particle ID to dict with 'x', 'y', 'z' arrays.
+    @attr velocities: Dict mapping particle ID to dict with 'x', 'y', 'z' arrays.
+    @attr data: Raw pandas DataFrame containing all simulation data.
+    """
+
+    def __init__(self, filename):
+        """
+        Initializes an NBodyVisualizer from SpaceHub simulation output.
+
+        Loads the CSV file and organizes data by particle for easy access.
+        Each particle's position and velocity components are stored as
+        NumPy arrays indexed by timestep.
+
+        @param filename: Path to the SpaceHub CSV output file.
+        """
+        # Load raw data
+        self.data = load_spacehub_data(filename)
+
+        # Determine number of particles
+        self.n_particles = self.data["id"].nunique()
+        particle_ids = sorted(self.data["id"].unique().astype(int))
+
+        # Determine number of timesteps (use minimum across all particles)
+        timesteps_per_particle = [
+            len(self.data[self.data["id"] == pid]) for pid in particle_ids
+        ]
+        self.npoints = min(timesteps_per_particle)
+
+        # Extract time array (from first particle)
+        self.time = self.data[self.data["id"] == particle_ids[0]]["time"].values[:self.npoints]
+
+        # Extract masses (one value per particle)
+        self.masses = np.array([
+            self.data[self.data["id"] == pid]["mass"].iloc[0] for pid in particle_ids
+        ])
+
+        # Organize positions by particle
+        self.positions = {}
+        for pid in particle_ids:
+            particle_data = self.data[self.data["id"] == pid]
+            self.positions[pid] = {
+                'x': particle_data['px'].values[:self.npoints],
+                'y': particle_data['py'].values[:self.npoints],
+                'z': particle_data['pz'].values[:self.npoints],
+            }
+
+        # Organize velocities by particle
+        self.velocities = {}
+        for pid in particle_ids:
+            particle_data = self.data[self.data["id"] == pid]
+            self.velocities[pid] = {
+                'x': particle_data['vx'].values[:self.npoints],
+                'y': particle_data['vy'].values[:self.npoints],
+                'z': particle_data['vz'].values[:self.npoints],
+            }
+
+        print(f"Loaded {self.n_particles} particles with {self.npoints} timesteps")
+
+    def get_position(self, particle_id, timestep=None, relative_to=None):
+        """
+        Gets position vector(s) for a particle, optionally relative to another particle.
+
+        @param particle_id: ID of the particle (0-indexed).
+        @param timestep: Optional timestep index. If None, returns full time series.
+        @param relative_to: Optional particle ID to compute position relative to.
+                           Returns (particle_id position) - (relative_to position).
+        @return: Position as [x, y, z] array (if timestep given) or dict with 'x', 'y', 'z' arrays.
+        """
+        pos = self.positions[particle_id]
+
+        if relative_to is not None:
+            ref_pos = self.positions[relative_to]
+            if timestep is not None:
+                return np.array([
+                    pos['x'][timestep] - ref_pos['x'][timestep],
+                    pos['y'][timestep] - ref_pos['y'][timestep],
+                    pos['z'][timestep] - ref_pos['z'][timestep]
+                ])
+            return {
+                'x': pos['x'] - ref_pos['x'],
+                'y': pos['y'] - ref_pos['y'],
+                'z': pos['z'] - ref_pos['z'],
+            }
+
+        if timestep is not None:
+            return np.array([pos['x'][timestep], pos['y'][timestep], pos['z'][timestep]])
+        return pos
+
+    def get_velocity(self, particle_id, timestep=None, relative_to=None):
+        """
+        Gets velocity vector(s) for a particle, optionally relative to another particle.
+
+        @param particle_id: ID of the particle (0-indexed).
+        @param timestep: Optional timestep index. If None, returns full time series.
+        @param relative_to: Optional particle ID to compute velocity relative to.
+                           Returns (particle_id velocity) - (relative_to velocity).
+        @return: Velocity as [vx, vy, vz] array (if timestep given) or dict with 'x', 'y', 'z' arrays.
+        """
+        vel = self.velocities[particle_id]
+
+        if relative_to is not None:
+            ref_vel = self.velocities[relative_to]
+            if timestep is not None:
+                return np.array([
+                    vel['x'][timestep] - ref_vel['x'][timestep],
+                    vel['y'][timestep] - ref_vel['y'][timestep],
+                    vel['z'][timestep] - ref_vel['z'][timestep]
+                ])
+            return {
+                'x': vel['x'] - ref_vel['x'],
+                'y': vel['y'] - ref_vel['y'],
+                'z': vel['z'] - ref_vel['z'],
+            }
+
+        if timestep is not None:
+            return np.array([vel['x'][timestep], vel['y'][timestep], vel['z'][timestep]])
+        return vel
+
+    def get_mass(self, particle_id):
+        """
+        Gets the mass of a particle.
+
+        @param particle_id: ID of the particle (0-indexed).
+        @return: Mass of the particle.
+        """
+        return self.masses[particle_id]
+
+    # Default color cycle for particle visualization
+    DEFAULT_COLORS = ['blue', 'red', 'green', 'orange', 'purple', 'cyan', 'magenta', 'yellow']
+
+    def animate_trajectories(self, fig, ax, reference_frame=0, start_index=0,
+                             tail_length=None, colors=None, sizes=None, *args, **kwargs):
+        """
+        Creates an animated 3D trajectory visualization for all particles.
+
+        The animation shows particle positions evolving over time with trailing
+        trajectory lines. The reference frame can be centered on a particle
+        or fixed at a point in space.
+
+        Use HTML(ani.to_jshtml()) to render in IPython Notebooks.
+
+        Example usage:
+            fig = plt.figure()
+            ax = fig.add_subplot(projection='3d')
+            # Center on particle 0
+            ani = viz.animate_trajectories(fig, ax, reference_frame=0, frames=500, interval=20)
+            # Or center on a fixed point
+            ani = viz.animate_trajectories(fig, ax, reference_frame=(0, 0, 0), frames=500)
+            HTML(ani.to_jshtml())
+
+        @param fig: Matplotlib figure object to write the animation to.
+        @param ax: Matplotlib 3D axes object for plotting.
+        @param reference_frame: Reference frame specification:
+                               - int: Particle ID to center the view on (tracks that particle).
+                               - tuple/list of 3 floats: Fixed point (x, y, z) in space.
+                               Default is 0 (center on particle 0).
+        @param start_index: Starting frame index in the data (default 0).
+        @param tail_length: Number of frames for trajectory tail. None shows full trail.
+        @param colors: List of colors for each particle. Uses DEFAULT_COLORS if None.
+        @param sizes: List of marker sizes for each particle. Defaults to 20 for all.
+        @param args: Additional positional arguments passed to FuncAnimation.
+        @param kwargs: Additional keyword arguments passed to FuncAnimation.
+                       Common options: frames (int), interval (int, ms between frames).
+        @return: matplotlib.animation.FuncAnimation object.
+        """
+        particle_ids = list(self.positions.keys())
+        n = len(particle_ids)
+
+        # Set default colors and sizes
+        if colors is None:
+            colors = [self.DEFAULT_COLORS[i % len(self.DEFAULT_COLORS)] for i in range(n)]
+        if sizes is None:
+            sizes = [20] * n
+
+        # Compute positions relative to reference frame
+        transformed_positions = {}
+        for pid in particle_ids:
+            px = self.positions[pid]['x'][start_index:]
+            py = self.positions[pid]['y'][start_index:]
+            pz = self.positions[pid]['z'][start_index:]
+
+            if isinstance(reference_frame, int):
+                # Center on a particle (subtract that particle's position)
+                ref_x = self.positions[reference_frame]['x'][start_index:]
+                ref_y = self.positions[reference_frame]['y'][start_index:]
+                ref_z = self.positions[reference_frame]['z'][start_index:]
+                transformed_positions[pid] = {
+                    'x': px - ref_x,
+                    'y': py - ref_y,
+                    'z': pz - ref_z,
+                }
+            else:
+                # Fixed point reference frame
+                ref_x, ref_y, ref_z = reference_frame
+                transformed_positions[pid] = {
+                    'x': px - ref_x,
+                    'y': py - ref_y,
+                    'z': pz - ref_z,
+                }
+
+        # Store scatter and line artists for each particle
+        scatters = []
+        trails = []
+
+        # Initialize plots for each particle
+        for i, pid in enumerate(particle_ids):
+            pos = transformed_positions[pid]
+            # Initial scatter point
+            scatter = ax.scatter3D(pos['x'][0], pos['y'][0], pos['z'][0],
+                                   c=colors[i], s=sizes[i], label=f'Particle {pid}')
+            scatters.append(scatter)
+            # Initial trail line
+            trail = ax.plot(pos['x'][0:1], pos['y'][0:1], pos['z'][0:1],
+                           c=colors[i], alpha=0.5)[0]
+            trails.append(trail)
+
+        ax.legend()
+
+        # Store references for update function
+        positions_ref = transformed_positions
+        pids_ref = particle_ids
+
+        def update(frame_num):
+            artists = []
+            for i, pid in enumerate(pids_ref):
+                pos = positions_ref[pid]
+
+                # Determine trail start index
+                if tail_length is not None:
+                    trail_start = max(0, frame_num - tail_length)
+                else:
+                    trail_start = 0
+
+                # Update scatter position
+                scatters[i]._offsets3d = (
+                    [pos['x'][frame_num]],
+                    [pos['y'][frame_num]],
+                    [pos['z'][frame_num]]
+                )
+
+                # Update trail
+                trails[i].set_data(pos['x'][trail_start:frame_num+1],
+                                   pos['y'][trail_start:frame_num+1])
+                trails[i].set_3d_properties(pos['z'][trail_start:frame_num+1])
+
+                artists.extend([scatters[i], trails[i]])
+
+            return artists
+
+        ani = animation.FuncAnimation(fig=fig, func=update, *args, **kwargs)
+        return ani
+
+    def plot_state_evolution(self, reference_frame=None, figsize=(12, 8), palette='tab10'):
+        """
+        Plots position and velocity magnitudes over time for all particles using seaborn.
+
+        Creates a 2-row figure with position magnitude on top and velocity magnitude
+        on bottom. All particles are overplotted with color coding by particle ID.
+
+        @param reference_frame: Reference frame specification:
+                               - None: Use absolute positions/velocities (no transformation).
+                               - int: Compute relative to particle with this ID.
+                               - 'origin' or (0,0,0): Compute relative to origin (same as absolute).
+                               Default is None.
+        @param figsize: Tuple (width, height) for figure size. Default (12, 8).
+        @param palette: Seaborn color palette name. Default 'tab10'.
+        @return: Tuple of (fig, axes) where axes is array of [ax_position, ax_velocity].
+        """
+        particle_ids = list(self.positions.keys())
+
+        # Determine if we need to compute relative values
+        if reference_frame == 'origin' or reference_frame == (0, 0, 0):
+            relative_to = None  # Origin is same as absolute
+        elif isinstance(reference_frame, int):
+            relative_to = reference_frame
+        else:
+            relative_to = None
+
+        # Build DataFrame for seaborn
+        records = []
+        for pid in particle_ids:
+            pos = self.get_position(pid, relative_to=relative_to)
+            vel = self.get_velocity(pid, relative_to=relative_to)
+
+            # Compute magnitudes
+            pos_mag = np.sqrt(pos['x']**2 + pos['y']**2 + pos['z']**2)
+            vel_mag = np.sqrt(vel['x']**2 + vel['y']**2 + vel['z']**2)
+
+            for i, t in enumerate(self.time):
+                records.append({
+                    'time': t,
+                    'particle_id': pid,
+                    'position': pos_mag[i],
+                    'velocity': vel_mag[i],
+                })
+
+        df = pd.DataFrame(records)
+
+        # Create figure with 2 subplots
+        fig, axes = plt.subplots(2, 1, figsize=figsize, sharex=True)
+
+        # Plot position magnitude
+        sns.lineplot(data=df, x='time', y='position', hue='particle_id',
+                     palette=palette, ax=axes[0])
+        axes[0].set_ylabel(r'$|r|$ (AU)')
+        axes[0].set_title('Position Magnitude vs Time')
+        axes[0].legend(title='Particle ID')
+
+        # Plot velocity magnitude
+        sns.lineplot(data=df, x='time', y='velocity', hue='particle_id',
+                     palette=palette, ax=axes[1])
+        axes[1].set_ylabel(r'$|v|$ (code units)')
+        axes[1].set_xlabel(r'Time $(yr \cdot (2\pi)^{-1})$')
+        axes[1].set_title('Velocity Magnitude vs Time')
+        axes[1].legend(title='Particle ID')
+
+        fig.tight_layout()
+        return fig, axes
+
+    def plot_state_components(self, reference_frame=None, figsize=(14, 10), palette='tab10'):
+        """
+        Plots position and velocity components (x, y, z) over time for all particles.
+
+        Creates a 2x3 grid with position components on top row and velocity
+        components on bottom row. All particles are overplotted with color coding.
+
+        @param reference_frame: Reference frame specification:
+                               - None: Use absolute positions/velocities.
+                               - int: Compute relative to particle with this ID.
+                               - 'origin' or (0,0,0): Compute relative to origin.
+                               Default is None.
+        @param figsize: Tuple (width, height) for figure size. Default (14, 10).
+        @param palette: Seaborn color palette name. Default 'tab10'.
+        @return: Tuple of (fig, axes) where axes is 2x3 array of Axes.
+        """
+        particle_ids = list(self.positions.keys())
+
+        # Determine if we need to compute relative values
+        if reference_frame == 'origin' or reference_frame == (0, 0, 0):
+            relative_to = None
+        elif isinstance(reference_frame, int):
+            relative_to = reference_frame
+        else:
+            relative_to = None
+
+        # Build DataFrame for seaborn
+        records = []
+        for pid in particle_ids:
+            pos = self.get_position(pid, relative_to=relative_to)
+            vel = self.get_velocity(pid, relative_to=relative_to)
+
+            for i, t in enumerate(self.time):
+                records.append({
+                    'time': t,
+                    'particle_id': pid,
+                    'px': pos['x'][i],
+                    'py': pos['y'][i],
+                    'pz': pos['z'][i],
+                    'vx': vel['x'][i],
+                    'vy': vel['y'][i],
+                    'vz': vel['z'][i],
+                })
+
+        df = pd.DataFrame(records)
+
+        # Create figure with 2x3 subplots
+        fig, axes = plt.subplots(2, 3, figsize=figsize, sharex=True)
+
+        components = ['x', 'y', 'z']
+
+        # Plot position components (top row)
+        for col, comp in enumerate(components):
+            sns.lineplot(data=df, x='time', y=f'p{comp}', hue='particle_id',
+                         palette=palette, ax=axes[0, col])
+            axes[0, col].set_ylabel(f'${comp}$ (AU)')
+            axes[0, col].set_title(f'Position {comp.upper()}')
+            axes[0, col].legend(title='Particle ID')
+
+        # Plot velocity components (bottom row)
+        for col, comp in enumerate(components):
+            sns.lineplot(data=df, x='time', y=f'v{comp}', hue='particle_id',
+                         palette=palette, ax=axes[1, col])
+            axes[1, col].set_ylabel(f'$v_{comp}$ (code units)')
+            axes[1, col].set_xlabel(r'Time $(yr \cdot (2\pi)^{-1})$')
+            axes[1, col].set_title(f'Velocity {comp.upper()}')
+            axes[1, col].legend(title='Particle ID')
+
+        fig.tight_layout()
+        return fig, axes
+
+
 class Theorize:
     """
     Provides theoretical calculations for gravitational wave orbital decay.
@@ -897,10 +1464,12 @@ def distance(data, key, i, j, npoints):
     else:
         print('wrong index type of j')
 
-    # Vectorized: use numpy array operations instead of loop
-    xdist = (xi.values - xj.values)[:npoints]
-    ydist = (yi.values - yj.values)[:npoints]
-    zdist = (zi.values - zj.values)[:npoints]
+    # Vectorized: pre-slice to npoints before subtracting so mismatched lengths
+    # (e.g. one particle's row missing at a mid-write file boundary) never cause
+    # a broadcast error — npoints = min(len_i, len_j) is already the safe minimum.
+    xdist = xi.values[:npoints] - xj.values[:npoints]
+    ydist = yi.values[:npoints] - yj.values[:npoints]
+    zdist = zi.values[:npoints] - zj.values[:npoints]
     return xdist, ydist, zdist
 
 
@@ -1088,6 +1657,84 @@ def load_spacehub_data(filename, dropna=True):
     return df
 
 
+def load_spacehub_data_live(filename, expected_columns=None):
+    """
+    Safely reads a SpaceHub CSV output file that may be actively written to
+    by a running simulation. Handles incomplete lines and partial timestep blocks.
+
+    Uses a plain file read (safe under POSIX while another process writes) and
+    filters out any partial data caused by reading mid-write.
+
+    @param filename: Path to the CSV file being written by a C++ simulation.
+    @param expected_columns: Number of columns expected per data line. If None,
+                             auto-detected from the header row.
+    @return: DataFrame with complete timestep data and added norm columns,
+             or None if the file is missing or has insufficient data.
+    """
+    try:
+        with open(filename, 'r') as f:
+            raw_text = f.read()
+    except FileNotFoundError:
+        return None
+
+    lines = raw_text.split('\n')
+    if len(lines) < 2:
+        return None
+
+    header = lines[0].strip()
+    if not header:
+        return None
+    header_cols = header.split(',')
+    n_expected = expected_columns or len(header_cols)
+
+    # Filter for complete, parseable data lines
+    valid_lines = []
+    for line in lines[1:]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        fields = stripped.split(',')
+        if len(fields) != n_expected:
+            continue
+        try:
+            [float(field) for field in fields]
+            valid_lines.append(stripped)
+        except ValueError:
+            continue
+
+    if not valid_lines:
+        return None
+
+    # Group by time value (first field) to identify timestep blocks
+    def time_key(line):
+        return line.split(',')[0]
+
+    timestep_groups = []
+    for time_val, group_iter in groupby(valid_lines, key=time_key):
+        timestep_groups.append(list(group_iter))
+
+    if not timestep_groups:
+        return None
+
+    # The first timestep is always complete (written before integration starts)
+    n_particles = len(timestep_groups[0])
+
+    # Keep only complete timestep blocks
+    complete_lines = []
+    for group in timestep_groups:
+        if len(group) == n_particles:
+            complete_lines.extend(group)
+
+    if not complete_lines:
+        return None
+
+    csv_text = header + '\n' + '\n'.join(complete_lines)
+    df = pd.read_csv(StringIO(csv_text))
+    df = df.dropna()
+    add_norms(df)
+    return df
+
+
 #----Utility Functions----
 
 def ensure_unit(x, unit: u.Unit):
@@ -1142,3 +1789,177 @@ def interp_intercept(x, y, intercept=0, npoints=1e3, returnCurves=False):
         return point, x_fine, y_fine
     else:
         return point
+
+
+#-------------Live Monitoring Tools--------------
+
+class LiveSimulationMonitor:
+    """
+    Real-time orbital element monitor for active SpaceHub simulations.
+
+    Periodically re-reads the simulation output file, computes orbital elements,
+    and updates a live plot in a Jupyter notebook. Uses seaborn for styling.
+
+    Usage in a Jupyter notebook:
+        monitor = LiveSimulationMonitor('simulation_output.dat')
+        monitor.run(plots=('e', 'a'), refresh_rate=5)
+        # Press the Jupyter interrupt button (stop button) to halt monitoring.
+
+    @param filename: Path to the SpaceHub CSV output file being written.
+    @param i: Index of the primary mass object (default 0).
+    @param j: Index of the secondary mass object (default 1).
+    """
+
+    def __init__(self, filename, i=0, j=1):
+        self.filename = filename
+        self.i = i
+        self.j = j
+        self._last_npoints = 0
+
+    def run(self, plots=('e', 'a', 'i', 'R'), refresh_rate=10.0, xlim=None,
+            ylim=None, figsize=None, max_iterations=None, style='darkgrid'):
+        """
+        Starts the live monitoring loop. Blocks until interrupted (KeyboardInterrupt)
+        or max_iterations is reached.
+
+        @param plots: Tuple of orbital element keys to plot (1-4 elements).
+                      Valid keys: 'e', 'a', 'i', 'R', 'Omega', 'omega', 'f', 'E'
+                      (same keys as TwoBodyOrbit.PLOT_CONFIG).
+        @param refresh_rate: Seconds between data re-reads (default 10.0).
+        @param xlim: X-axis limits tuple, or None for auto-scale.
+        @param ylim: Controls y-axis scaling:
+                     - None (default): use preset limits from PLOT_CONFIG
+                     - False: auto-scale all plots
+                     - (min, max) tuple: apply same limits to all plots
+                     - List of tuples/None/False: per-plot limits
+        @param figsize: Figure size tuple, or None for defaults.
+        @param max_iterations: Maximum number of refresh cycles (None = infinite).
+        @param style: Seaborn style name (default 'darkgrid').
+        """
+        iteration = 0
+
+        try:
+            while True:
+                if max_iterations is not None and iteration >= max_iterations:
+                    print("Reached maximum iterations. Stopping monitor.")
+                    break
+
+                # Step 1: Safely read the file
+                df = load_spacehub_data_live(self.filename)
+
+                if df is None or len(df) < 2:
+                    clear_output(wait=True)
+                    print(f"[Refresh #{iteration}] Waiting for simulation data in '{self.filename}'...")
+                    time_module.sleep(refresh_rate)
+                    iteration += 1
+                    continue
+
+                # Step 2: Compute orbital elements
+                try:
+                    orb = TwoBodyOrbit.from_dataframe(df, i=self.i, j=self.j, mute=True)
+                except Exception as exc:
+                    clear_output(wait=True)
+                    print(f"[Refresh #{iteration}] Data read ({len(df)} rows) but orbital "
+                          f"element computation failed: {exc}")
+                    print("Will retry on next refresh...")
+                    time_module.sleep(refresh_rate)
+                    iteration += 1
+                    continue
+
+                # Step 3: Build the plot
+                clear_output(wait=True)
+
+                sns.set_style(style)
+                plot_list = list(plots)[:4]
+                n = len(plot_list)
+
+                default_sizes = {1: (8, 5), 2: (12, 5), 3: (12, 8), 4: (12, 8)}
+                fig_size = figsize or default_sizes.get(n, (12, 8))
+
+                # Normalize ylim (same logic as plot_keplerian_evolution)
+                if ylim is None:
+                    ylim_list = [None] * n
+                elif ylim is False:
+                    ylim_list = [False] * n
+                elif isinstance(ylim, list):
+                    ylim_list = ylim + [None] * (n - len(ylim))
+                else:
+                    ylim_list = [ylim] * n
+
+                # Create subplot grid
+                if n == 1:
+                    fig, ax = plt.subplots(1, 1, figsize=fig_size)
+                    axs = [ax]
+                elif n == 2:
+                    fig, axs = plt.subplots(1, 2, figsize=fig_size)
+                    axs = list(axs)
+                elif n == 3:
+                    fig = plt.figure(figsize=fig_size)
+                    axs = [
+                        fig.add_subplot(2, 2, 1),
+                        fig.add_subplot(2, 2, 2),
+                        fig.add_subplot(2, 1, 2),
+                    ]
+                else:
+                    fig, axes = plt.subplots(2, 2, figsize=fig_size)
+                    axs = list(axes.flatten())
+
+                # Plot each element using seaborn
+                for idx, (ax, key) in enumerate(zip(axs, plot_list)):
+                    cfg = TwoBodyOrbit.PLOT_CONFIG[key]
+                    data_arr = getattr(orb, cfg['data'])
+                    sns.lineplot(x=orb.time, y=data_arr, ax=ax)
+                    ax.set_title(cfg['title'])
+                    ax.set_ylabel(cfg['ylabel'])
+                    ax.set_xlabel(r'$t$ ($yr \cdot (2\pi)^{-1}$)')
+
+                    if xlim is not None:
+                        ax.set_xlim(xlim)
+
+                    plot_ylim = ylim_list[idx]
+                    if plot_ylim is None:
+                        if cfg['ylim']:
+                            ax.set_ylim(cfg['ylim'])
+                    elif plot_ylim is not False:
+                        ax.set_ylim(plot_ylim)
+
+                    if cfg.get('fmt'):
+                        ax.yaxis.set_major_formatter(FormatStrFormatter(cfg['fmt']))
+
+                # Add status info
+                current_time = orb.time[-1] if orb.time else 0
+                current_years = current_time / (2 * np.pi)
+                delta = orb.npoints - self._last_npoints
+                self._last_npoints = orb.npoints
+
+                fig.suptitle(
+                    f"Live Monitor | t = {current_years:.2f} yr | "
+                    f"{orb.npoints} timesteps | +{delta} since last refresh",
+                    fontsize=10, y=1.02
+                )
+                fig.tight_layout()
+                plt.show()
+
+                time_module.sleep(refresh_rate)
+                iteration += 1
+
+        except KeyboardInterrupt:
+            print("\nMonitoring stopped by user.")
+        finally:
+            plt.close('all')
+
+
+def monitor_simulation(filename, plots=('e', 'a', 'i', 'R'), refresh_rate=10.0,
+                       i=0, j=1, **kwargs):
+    """
+    Convenience function to start live monitoring of a running simulation.
+
+    @param filename: Path to the simulation output CSV file.
+    @param plots: Orbital element keys to display.
+    @param refresh_rate: Seconds between refreshes.
+    @param i: Primary particle index (default 0).
+    @param j: Secondary particle index (default 1).
+    @param kwargs: Additional keyword arguments passed to LiveSimulationMonitor.run().
+    """
+    monitor = LiveSimulationMonitor(filename, i=i, j=j)
+    monitor.run(plots=plots, refresh_rate=refresh_rate, **kwargs)
