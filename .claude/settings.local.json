@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(python3:*)",
-      "Bash(timeout 30 test/nick_test/Kepler_simple:*)"
-    ]
-  }
-}
