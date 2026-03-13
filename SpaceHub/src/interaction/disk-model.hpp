@@ -98,53 +98,20 @@ namespace hub::force
             initialized = true;
         }
 
-        // Catmull-Rom spline with Fritsch-Carlson monotonicity clamping
-        // batch-interpolates all needed disk properties at radius R
-        // Could probably replace with a simpler method
+        // Linear interpolation of each disk property independently as f(R)
         static DiskProps interp_all(double R) {
-            auto const& table = disk_table;
-            auto it = std::lower_bound(table.begin(), table.end(), R,
+            if (R <= Rmin || R >= Rmax) return {0, 0, 0, 0};
+
+            auto const& t = disk_table;
+            auto it = std::lower_bound(t.begin(), t.end(), R,
                 [](const DiskRow& row, double r) { return row.R < r; });
+            size_t i = (it - t.begin()) - 1;
 
-            size_t i = std::clamp<size_t>(it - table.begin(), 1, table.size() - 2);
-            size_t i0 = (i > 1) ? i - 1 : 0;
-            size_t i1 = i, i2 = i + 1;
-            size_t i3 = std::min(i + 2, table.size() - 1);
+            double frac = (R - t[i].R) / (t[i+1].R - t[i].R);
+            auto lerp = [&](double f0, double f1) { return f0 + (f1 - f0) * frac; };
 
-            double x0 = table[i0].R, x1 = table[i1].R, x2 = table[i2].R, x3 = table[i3].R;
-            double h = x2 - x1;
-            double t = (R - x1) / h;
-            double t2 = t * t, t3 = t2 * t;
-            double h00 = 2*t3 - 3*t2 + 1, h10 = t3 - 2*t2 + t;
-            double h01 = -2*t3 + 3*t2,     h11 = t3 - t2;
-
-            auto spline = [&](double DiskRow::*field) {
-                double y0 = table[i0].*field, y1 = table[i1].*field,
-                       y2 = table[i2].*field, y3 = table[i3].*field;
-                double m1 = (y2 - y0) / (x2 - x0);
-                double m2 = (y3 - y1) / (x3 - x1);
-
-                // Fritsch-Carlson monotonicity constraint
-                double delta = (y2 - y1) / h;
-                if (std::abs(delta) < 1e-30) {
-                    m1 = m2 = 0.0;
-                } else {
-                    double alpha_fc = m1 / delta;
-                    double beta_fc  = m2 / delta;
-                    if (alpha_fc <= 0.0) m1 = 0.0;
-                    if (beta_fc  <= 0.0) m2 = 0.0;
-                    double r2 = alpha_fc * alpha_fc + beta_fc * beta_fc;
-                    if (r2 > 9.0) {
-                        double tau = 3.0 / std::sqrt(r2);
-                        m1 = tau * alpha_fc * delta;
-                        m2 = tau * beta_fc  * delta;
-                    }
-                }
-                return h00*y1 + h10*h*m1 + h01*y2 + h11*h*m2;
-            };
-
-            return {spline(&DiskRow::rho), spline(&DiskRow::cs),
-                    spline(&DiskRow::H), spline(&DiskRow::grad_P)};
+            return {lerp(t[i].rho, t[i+1].rho), lerp(t[i].cs, t[i+1].cs),
+                    lerp(t[i].H, t[i+1].H), lerp(t[i].grad_P, t[i+1].grad_P)};
         }
 
         // Sub-keplerian disk velocity corrected for pressure gradient (Armitage eq. 2.30)
@@ -212,7 +179,7 @@ namespace hub::force
             double R_cyl = sqrt(dr.x * dr.x + dr.y * dr.y);
             double z = dr.z;
             
-            if (R_cyl <= Rmin || R_cyl > Rmax) continue;
+            if (R_cyl <= Rmin || R_cyl > Rmax) continue; 
 
             auto props = interp_all(R_cyl);
             double rho_c = props.rho, cs = props.cs, H = props.H, n = props.grad_P;

@@ -83,5 +83,6 @@
         "typeindex": "cpp",
         "typeinfo": "cpp",
         "variant": "cpp"
-    }
+    },
+    "cmake.sourceDirectory": "/home/mars/Computing/AGN/SpaceHub-Tinkering/SpaceHub"
 }

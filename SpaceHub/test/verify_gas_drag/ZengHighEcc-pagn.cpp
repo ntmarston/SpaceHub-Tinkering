@@ -11,7 +11,7 @@ using namespace force;
 // Reproduces Zeng & Pan fig 10: e_ini=0.7, p_ini=300 Rg
 using f = Interactions<NewtonianGrav, DiskModel>;
 
-using Solver = methods::DefaultMethod<f, particles::SizeParticles>;
+using Solver = methods::Sym4<f, particles::SizeParticles>;
 /*----------------------------------------------------------------------------------------------------------------*/
 using Particle = Solver::Particle;
 using Scalar = Solver::Scalar;
@@ -28,8 +28,8 @@ int main(int argc, char** argv) {
         print(std::cout << "Usage: " << argv[0] << " <inclination_in_degrees>\n");
     }
 
-    // Load pagn-generated disk file (Sirko-Goodman, le=0.5, alpha=0.1)
-    DiskModel::init_from_file("../../src/interaction/disk_tab/disk_ZengAndPan_pagn.csv");
+    // Load pagn-generated disk file
+    DiskModel::init_from_file("../../src/interaction/disk_tab/SG_01Edd.csv");
 
     // Configure force toggles: ONLY dynamical friction enabled
     DiskModel::enable_dynamical_friction = true;
@@ -68,7 +68,9 @@ int main(int argc, char** argv) {
     Solver::RunArgs args;
     args.rtol = 1e-9;
 
-    auto collision_detect = [](auto &ptc, auto h)
+    std::string exit_reason = "time_limit";
+
+    auto collision_detect = [&exit_reason](auto &ptc, auto h)
             {
                 size_t particle_num = ptc.number();
                 for (size_t i = 0; i < particle_num; ++i)
@@ -77,6 +79,7 @@ int main(int argc, char** argv) {
                     {
                         if (distance(ptc.pos(i), ptc.pos(j)) < ptc.radius(i) + ptc.radius(j))
                         {
+                            exit_reason = "collision";
                             return true;
                         }
                     }
@@ -87,14 +90,15 @@ int main(int argc, char** argv) {
     args.add_stop_condition(collision_detect);
 
     // Stop when semi-major axis has shrunk by 50% from its initial value (a < 0.5 * sma_ini)
-    auto sma_shrink_stop = [sma, m1, m2](auto &ptc, auto h) {
+    auto sma_shrink_stop = [sma, m1, m2, &exit_reason](auto &ptc, auto h) {
         auto dr = ptc.pos(1) - ptc.pos(0);
         auto dv = ptc.vel(1) - ptc.vel(0);
         auto r = norm(dr);
         auto v2 = dot(dv, dv);
         auto eps = 0.5 * v2 - consts::G * (m1 + m2) / r;
         auto a_cur = -consts::G * (m1 + m2) / (2.0 * eps);
-        return a_cur < 0.5 * sma;
+        if (a_cur < 0.5 * sma) { exit_reason = "sma_shrink"; return true; }
+        return false;
     };
     args.add_stop_condition(sma_shrink_stop);
 
@@ -117,6 +121,7 @@ int main(int argc, char** argv) {
 
     double elapsed_time = timer.get_time();
 
+    print(std::cout << "Exit condition: " << exit_reason << "\n");
     print(std::cout << "Simulation complete in " << elapsed_time << "s with no errors!\n");
 
     return 0;

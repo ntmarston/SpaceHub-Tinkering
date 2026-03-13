@@ -11,7 +11,7 @@ using namespace force;
 // Reproduces Zeng & Pan fig 9: e_ini=0.3, p_ini=300 Rg
 using f = Interactions<NewtonianGrav, DiskModel>;
 
-using Solver = methods::DefaultMethod<f, particles::SizeParticles>;
+using Solver = methods::Sym6<f, particles::SizeParticles>;
 /*----------------------------------------------------------------------------------------------------------------*/
 using Particle = Solver::Particle;
 using Scalar = Solver::Scalar;

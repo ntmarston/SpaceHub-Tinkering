@@ -10,7 +10,7 @@ using namespace force;
 // Uses pagn (Sirko-Goodman) disk model instead of disktab
 using f = Interactions<NewtonianGrav, DiskModel>;
 
-using Solver = methods::DefaultMethod<f, particles::SizeParticles>;
+using Solver = methods::Sym6<f, particles::SizeParticles>;
 /*----------------------------------------------------------------------------------------------------------------*/
 using Particle = Solver::Particle;
 using Scalar = Solver::Scalar;
@@ -47,9 +47,9 @@ int main(int argc, char** argv) {
 
     // Orbital parameters: 0.1 pc, e=0.67, omega=0 (cos(omega)=+1)
     Scalar sma = 0.1_PC;
-    auto ecc = 0.67;
+    auto ecc = 0.6;
 
-    auto inclination = inclination_deg * 1_deg;
+    auto inclination = 90_deg;
     auto longitude_of_ascending_node = 0_deg;
     auto argument_of_periapsis = 0_deg;  // cos(0) = +1, satisfies cos(omega_0) = ±1
     auto true_anomaly = 0_deg;

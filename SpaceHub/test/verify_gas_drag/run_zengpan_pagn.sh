@@ -15,10 +15,10 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-INCLINATIONS=(20 45 120 135 170)
+INCLINATIONS=(90 105 120 135)
 N_WORKERS=4
 TEST_MODE=false
-TIMEOUT=57600 # 8 hours
+TIMEOUT=115200 # 16 hours
 
 for arg in "$@"; do
     [[ "$arg" == "--test" ]] && TEST_MODE=true
@@ -43,9 +43,16 @@ run_one() {
 
     timeout "$TIMEOUT" ./"${exe}" "${inc}" > "$logfile" 2>&1 || rc=$?
 
-    # Exit 124 = timeout; treat as OK in test mode (sim was still running)
-    if $TEST_MODE && [[ $rc -eq 124 ]]; then
-        echo "[OK]   ${label}  i=${inc}°  (timed out as expected in test mode)"
+    # Exit 124 = timeout
+    if [[ $rc -eq 124 ]]; then
+        if $TEST_MODE; then
+            echo "[OK]   ${label}  i=${inc}°  (timed out as expected in test mode)"
+        else
+            echo "[TIMEOUT] ${label}  i=${inc}°  (exit=124)"
+            if [[ -f "$outfile" ]]; then
+                mv "$outfile" "$(dirname "$outfile")/TO_$(basename "$outfile")"
+            fi
+        fi
         return
     fi
 
@@ -65,21 +72,22 @@ run_one() {
 # ── Compile ───────────────────────────────────────────────────────────────────
 echo ""
 echo "=== Compiling ==="
-g++ -std=c++17 -O3 -pthread ZengLowEcc-pagn.cpp -o sim-ZengLowEcc-pagn \
-    && echo "  sim-ZengLowEcc-pagn    OK" || { echo "  sim-ZengLowEcc-pagn    FAILED"; exit 1; }
+# g++ -std=c++17 -O3 -pthread ZengLowEcc-pagn.cpp -o sim-ZengLowEcc-pagn \
+#     && echo "  sim-ZengLowEcc-pagn    OK" || { echo "  sim-ZengLowEcc-pagn    FAILED"; exit 1; }
 g++ -std=c++17 -O3 -pthread ZengHighEcc-pagn.cpp -o sim-ZengHighEcc-pagn \
     && echo "  sim-ZengHighEcc-pagn   OK" || { echo "  sim-ZengHighEcc-pagn   FAILED"; exit 1; }
 echo "=== Compilation complete ==="
 
 # ── Ensure output directories exist ──────────────────────────────────────────
-mkdir -p ZengLowEcc-pagn ZengHighEcc-pagn
+# mkdir -p ZengLowEcc-pagn ZengHighEcc-pagn
+mkdir -p ZengHighEcc-pagn
 
 # ── Task list ─────────────────────────────────────────────────────────────────
 # Format: "exe|inc|outfile|label"
 TASKS=()
-for inc in "${INCLINATIONS[@]}"; do
-    TASKS+=("sim-ZengLowEcc-pagn|${inc}|ZengLowEcc-pagn/incl-${inc}.dat|ZengLow-pagn")
-done
+# for inc in "${INCLINATIONS[@]}"; do
+#     TASKS+=("sim-ZengLowEcc-pagn|${inc}|ZengLowEcc-pagn/incl-${inc}.dat|ZengLow-pagn")
+# done
 for inc in "${INCLINATIONS[@]}"; do
     TASKS+=("sim-ZengHighEcc-pagn|${inc}|ZengHighEcc-pagn/incl-${inc}.dat|ZengHigh-pagn")
 done
@@ -105,7 +113,7 @@ echo ""
 echo "=== All simulations finished at $(date) ==="
 echo ""
 
-for dir in ZengLowEcc-pagn ZengHighEcc-pagn; do
+for dir in ZengHighEcc-pagn; do  # ZengLowEcc-pagn (to uncomment put before ZengHighEcc-pagn on this line)
     n_ok=$(ls "${dir}"/*.dat 2>/dev/null | grep -cv FAILED || true)
     n_fail=$(ls "${dir}"/*_FAILED.dat 2>/dev/null | wc -l || true)
     echo "  ${dir}/  →  ${n_ok} OK,  ${n_fail} FAILED"
