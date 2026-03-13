@@ -19,9 +19,9 @@ License
     with SpaceHub.
 \*---------------------------------------------------------------------------*/
 /**
- * @file disk-model.hpp
+ * @file typeI-migration.hpp
  *
- * Header file for tabulated disk model with one-time CSV loading.
+ * Header file for Type I migration and eccentricity damping.
  */
 
 #pragma once
@@ -36,18 +36,19 @@ License
 
 #include "../dev-tools.hpp"
 #include "../spacehub-concepts.hpp"
+#include "../orbits/orbits.hpp"
 using namespace hub::unit;
 
 namespace hub::force
 {
     // Set of values extracted for a specific R from the table
     struct DiskRow {
-        double R, R_Rg, Tc, rho, P, cs, H, visc, Sigma, Q, grad_T, grad_Sigma, grad_P;
+        double R, R_Rg, Tc, rho, P, cs, H, visc, Sigma, Q, grad_T, grad_Sigma, grad_P, gamma, f_thermal;
     };
 
     // Set of interpolated properties, returned by the interp_all() method
     struct DiskProps {
-        double rho, cs, H, grad_P;
+        double Sigma, H, rho, Tc, cs, grad_T, grad_Sigma, grad_P, gamma, f_thermal;
     };
 
     class DiskModel
@@ -59,9 +60,12 @@ namespace hub::force
         static inline bool initialized = false;
 
         // Force toggle flags (must be set before running solver)
-        static inline bool enable_dynamical_friction = true;
-        static inline bool enable_aerodynamic_drag = true;
-        static inline bool enable_bondi_hoyle = true;
+        static inline bool eccDamping_CN06 = true;
+        static inline bool migration_Jimenez = true;
+
+        // Convenience aliases
+        static inline bool& eccentricity_damping = eccDamping_CN06;
+        static inline bool& migration = migration_Jimenez;
 
         static inline double Rmin;
         static inline double Rmax;
@@ -82,28 +86,19 @@ namespace hub::force
             }
 
             std::string line;
-            std::getline(file, line);
-            {
-                std::stringstream hss(line);
-                std::string col;
-                const std::vector<std::string> expected = {
-                    "R", "R/Rg", "Tc", "rho", "P", "cs", "H", "visc",
-                    "Sigma", "Q", "grad_T", "grad_Sigma", "grad_P"
-                };
-                for (const auto& exp : expected) {
-                    if (!std::getline(hss, col, ',') || col != exp)
-                        throw std::runtime_error("malformatted disktab file");
-                }
-            }
+            std::getline(file, line); // skip header (column order must match DiskRow fields)
+
             while (std::getline(file, line)) {
                 std::stringstream ss(line);
                 DiskRow row;
                 char comma;
+                row.gamma = 5.0/3.0;      // default if columns missing
+                row.f_thermal = 1.0;
                 ss >> row.R >> comma >> row.R_Rg >> comma >> row.Tc >> comma
                    >> row.rho >> comma >> row.P >> comma >> row.cs >> comma
                    >> row.H >> comma >> row.visc >> comma >> row.Sigma >> comma
                    >> row.Q >> comma >> row.grad_T >> comma >> row.grad_Sigma >> comma
-                   >> row.grad_P;
+                   >> row.grad_P >> comma >> row.gamma >> comma >> row.f_thermal;
                 disk_table.push_back(row);
             }
             initialized = true;
@@ -111,7 +106,7 @@ namespace hub::force
 
         // Linear interpolation of each disk property independently as f(R)
         static DiskProps interp_all(double R) {
-            if (R <= Rmin || R >= Rmax) return {0, 0, 0, 0};
+            if (R <= Rmin || R >= Rmax) return {0, 0, 0, 0, 0, 0, 0, 0, 5.0/3.0, 1.0};
 
             auto const& t = disk_table;
             auto it = std::lower_bound(t.begin(), t.end(), R,
@@ -121,8 +116,16 @@ namespace hub::force
             double frac = (R - t[i].R) / (t[i+1].R - t[i].R);
             auto lerp = [&](double f0, double f1) { return f0 + (f1 - f0) * frac; };
 
-            return {lerp(t[i].rho, t[i+1].rho), lerp(t[i].cs, t[i+1].cs),
-                    lerp(t[i].H, t[i+1].H), lerp(t[i].grad_P, t[i+1].grad_P)};
+            return {lerp(t[i].Sigma, t[i+1].Sigma),
+                    lerp(t[i].H, t[i+1].H),
+                    lerp(t[i].rho, t[i+1].rho),
+                    lerp(t[i].Tc, t[i+1].Tc),
+                    lerp(t[i].cs, t[i+1].cs),
+                    lerp(t[i].grad_T, t[i+1].grad_T),
+                    lerp(t[i].grad_Sigma, t[i+1].grad_Sigma),
+                    lerp(t[i].grad_P, t[i+1].grad_P),
+                    lerp(t[i].gamma, t[i+1].gamma),
+                    lerp(t[i].f_thermal, t[i+1].f_thermal)};
         }
 
         // Sub-keplerian disk velocity corrected for pressure gradient (Armitage eq. 2.30)
@@ -155,32 +158,7 @@ namespace hub::force
         auto const &m = particles.mass();
         auto const &r = particles.radius();
 
-        // Dynamical friction I(M) functions and transonic Hermite splice constants (logR=3.0 invariant)
-        static auto I_sup = [](double M, double logR) { return (0.5 * log(1 - 1 / M / M) + logR) / M / M; };
-        static auto I_sub = [](double M) { return (0.5 * log((1 + M) / (1 - M)) - M) / M / M; };
-        static auto dIdM_sup = [](double M, double logR) {
-            return (-2 * logR + 1 / (M * M - 1) - log(1 - 1 / M / M)) / M / M / M;
-        };
-        static auto dIdM_sub = [](double M) {
-            return (M * M * M + (1 - M * M) * log((1 + M) / (1 - M)) - 2 * M) / (M * M * M * (M * M - 1));
-        };
-
-        static constexpr double logR = 3.0;
-        static const double eps = 1.0 / std::exp(2.0 * logR / 3.0);
-        static const double x1 = 1 - eps;
-        static const double x2 = 1 + eps;
-        static const double y1 = I_sub(x1);
-        static const double y2 = I_sup(x2, logR);
-        static const double k1 = dIdM_sub(x1);
-        static const double k2 = dIdM_sup(x2, logR);
-        static const double a = k1 * (x2 - x1) - (y2 - y1);
-        static const double b = -k2 * (x2 - x1) + (y2 - y1);
-
-        static auto tt = [](double M) { return (M - x1) / (x2 - x1); };
-        static auto connect = [](double M) {
-            double t = tt(M);
-            return (1 - t) * y1 + y2 * t + (1 - t) * t * (t * b + (1 - t) * a);
-        };
+        
 
         for (size_t i = 1; i < num; ++i)
         {
@@ -189,59 +167,83 @@ namespace hub::force
             auto dv = v[i] - v[0];
             double R_cyl = sqrt(dr.x * dr.x + dr.y * dr.y);
             double z = dr.z;
+            auto u = consts::G * (m[0] + m[i]);
+            auto [a_orb, ecc] = orbit::calc_a_e(u, dr, dv); //yihan built in method
+            auto L_vec = cross(dr, dv);
+            double incl = acos(L_vec.z / norm(L_vec));
+            
+
+
             
             if (R_cyl <= Rmin || R_cyl > Rmax) continue; 
 
             auto props = interp_all(R_cyl);
-            double rho_c = props.rho, cs = props.cs, H = props.H, n = props.grad_P;
+            double Sigma = props.Sigma, H = props.H, rho = props.rho,
+                   Tc = props.Tc, cs = props.cs, grad_T = props.grad_T,
+                   grad_Sigma = props.grad_Sigma, grad_P = props.grad_P,
+                   gamma = props.gamma, f_thermal = props.f_thermal;
 
-            double rho = rho_c * exp(-0.5 * (z * z) / (H * H));
+            //double rho = rho_c * exp(-0.5 * (z * z) / (H * H));
 
-            auto v_disk = disk_v(dr, m[0], n, cs);
+            auto v_disk = disk_v(dr, m[0], grad_P, cs);
             auto v_rel = dv - v_disk;
             auto v2 = dot(v_rel, v_rel);
             auto vmag = sqrt(v2);
 
             if (vmag < 1e-10) continue;
 
+            //Kept this in when I copied the structure over from disk-model.hpp, could probably delete
             auto r_eff = std::max(r[i], consts::G * m[i] / (v2 + cs * cs));
             auto Mach = vmag / cs;
+            double Omega_k = sqrt(consts::G * m[0] / (R_cyl * R_cyl * R_cyl));
 
-            double f_total = 0;
-            double I = 0;
+            double aspect_ratio = H/R_cyl;
+            double e_tilde = ecc / aspect_ratio;
 
-            if (Mach >= 1 + eps) {
-                I = (0.5 * log(1 - 1 / (Mach * Mach)) + logR) / (Mach * Mach);
-            }
-            else if ((0.1 < Mach) && (Mach < 1 - eps)) {
-                I = (0.5 * log((1 + Mach) / (1 - Mach)) - Mach) / (Mach * Mach);
-            }
-            else if (Mach <= 0.1) {
-                I = Mach / 3.0;
-            }
-            else {
-                I = connect(Mach);
-            }
 
-            // M^2 factor is absorbed into I(M) to avoid mixed mach/velocity dependence
-            if (enable_dynamical_friction) {
-                double f_dyn = I * 4 * consts::pi * consts::G * consts::G * m[i] * m[i] * rho / (cs * cs);
-                f_total += f_dyn;
+            //==========CN06 Eccentricity Damping (Eq. 17, 19)==========
+            if (eccDamping_CN06) {
+                //This one does not have extrema lining up properly, temp fix by changing coefficients
+                //double Q_e = atan(-3.0 * e_tilde) * (2.0 / consts::pi) * 0.45 + 0.55;
+                double Q_e = atan(-3.0 * e_tilde) * (2.0 / consts::pi) * 0.9 + 1.0;
+                double t_e = (Q_e / 0.78) * (m[0] / m[i]) * (m[0] / (Sigma * a_orb * a_orb)) * pow(aspect_ratio, 4) * (1.0 + 0.25 * pow(e_tilde, 3)) / Omega_k;
+
+                double vdotr = dot(dv, dr);
+                double r2 = dot(dr, dr);
+                auto accel_e = dr * (-2.0 * vdotr / (r2 * t_e));
+
+                acceleration[i] += accel_e;
+                acceleration[0] -= accel_e * (m[i] / m[0]); //I think this is how the scaling should work?
             }
 
-            if (enable_aerodynamic_drag) {
-                double f_aero = consts::pi * r_eff * r_eff * rho * v2;
-                f_total += f_aero;
-            }
+            //==========Type I Migration Torque (Gilbaum+2025 Section 3.1 (uses JM17)==========
+            if (migration_Jimenez) {
+                double q = m[i] / m[0];
+                double h = aspect_ratio;
 
-            if (enable_bondi_hoyle) {
-                double f_HL = 4 * consts::pi * consts::G * consts::G * m[i] * m[i] * rho / (cs * cs);
-                double f_BH = f_HL / (1 + Mach * Mach);
-                f_total += f_BH;
-            }
+                // --- jm_lin_tot ---
+                double C_L = (-2.34 + 0.1 * grad_Sigma - 1.5 * grad_T) * f_thermal;
+                double C_CR = (0.46 - 0.96 * grad_Sigma + 1.8 * grad_T) / gamma;
+                double C_I = C_L + C_CR;
 
-            acceleration[i] -= f_total * v_rel / vmag / m[i];
-            acceleration[0] += f_total * v_rel / vmag / m[0];
+                // --- jm_lin_iso ---
+                // double C_I = -1.36 - 0.54 * grad_Sigma - 0.5 * grad_T;
+                
+
+                // Normalizing torque (Eq. 12): Gamma0 = q^2 * Sigma * R^4 * Omega^2 * h^-3
+                double Gamma0 = q * q * Sigma * R_cyl * R_cyl * R_cyl * R_cyl
+                              * Omega_k * Omega_k / (h * h * h);
+
+                // Type I torque (Eq. 13)
+                double Gamma_I = C_I * h * Gamma0;
+
+                // Torque -> tangential acceleration (Murray & Dermott T̄ component)
+                double T_bar = Gamma_I / (m[i] * R_cyl);
+                auto a_mig = Vec3{-dr.y, dr.x, 0.0} * (T_bar / R_cyl); //Causes problems if this is not disabled for retrograde orbits!
+
+                acceleration[i] += a_mig;
+                acceleration[0] -= a_mig * (m[i] / m[0]);
+            }
         }
     }
 

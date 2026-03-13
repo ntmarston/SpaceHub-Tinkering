@@ -125,7 +125,8 @@ int main(int argc, char** argv) {
 
 
 
-// Commands to compile and run this simulation (run from verify_gas_drag/):
+// Commands to compile and run this simulation:
+// cd SpaceHub/test/verify_gas_drag
 // g++ -std=c++17 -O3 -pthread ZengLowEcc.cpp -o simulations/bin/ZengLowEcc
 // ./simulations/bin/ZengLowEcc <inclination_in_degrees>
 // Example: ./simulations/bin/ZengLowEcc 20.0

@@ -1098,6 +1098,8 @@ class AGNDisk:
                 - Sigma: M☉/AU²
                 - Q: dimensionless (unchanged)
                 - grad_P: -dlnP/dlnr, dimensionless (unchanged)
+                - gamma: adiabatic index (4/3 rad-dominated, 5/3 gas-dominated)
+                - f_thermal: thermal saturation factor (Gilbaum+2025 Eq. A5)
                 - zone: string (unchanged)
 
         The result is also stored in self.model_spacehub.
@@ -1132,6 +1134,30 @@ class AGNDisk:
         # Create converted DataFrame
         df = self.model.copy()
 
+        # Compute dimensionless columns from SI values (before unit conversion)
+        Tc_SI = df['Tc'].values                          # K
+        rho_SI = df['rho'].values                        # kg/m^3
+        R_SI = df['R'].values                            # m
+        H_SI = df['H'].values                            # m
+
+        P_rad = 4 * sigma_sb.value * Tc_SI**4 / (3 * c.value)
+        P_gas = rho_SI * k_B.value * Tc_SI / (self.mu * m_p.value)
+        gamma_arr = np.where(P_rad > P_gas, 4.0/3.0, 5.0/3.0)
+
+        # Thermal saturation factor f(x) (Gilbaum+2025 Eq. A5, JM17)
+        Omega_SI = np.sqrt(G.value * self.M.to(u.kg).value / R_SI**3)
+        kappa_es = 0.04                                  # m^2/kg, electron scattering
+        kappa_kr = 6.4e18 * rho_SI * Tc_SI**(-3.5)      # m^2/kg, Kramers
+        kappa_SI = kappa_es + kappa_kr
+        chi = (16 * gamma_arr * (gamma_arr - 1) * sigma_sb.value * Tc_SI**4
+               / (3 * kappa_SI * rho_SI**2 * H_SI**2 * Omega_SI**2))
+        x_thermal = chi / (H_SI**2 * Omega_SI)
+        sqrt_halfx = np.sqrt(x_thermal / 2)
+        f_thermal = (sqrt_halfx + 1/gamma_arr) / (sqrt_halfx + 1)
+
+        df['gamma'] = gamma_arr
+        df['f_thermal'] = f_thermal
+
         # Apply conversions
         df["R"] = df["R"] * conv_length
         # R/Rg is dimensionless, unchanged
@@ -1145,9 +1171,9 @@ class AGNDisk:
         # Q, grad_T, grad_Sigma, grad_P are dimensionless, unchanged
         # zone is a string label, unchanged
 
-        # Reorder: 13 numeric base columns → zone → _raw columns (if any).
-        # C++ reads by position and stops at grad_P (col 13), so _raw cols
-        # placed after zone are invisible to disk-model.hpp.
+        # Reorder: numeric base columns → zone → _raw columns (if any).
+        # disk-model.hpp reads first 13 cols by position (up to grad_P).
+        # gamma and f_thermal (cols 14-15) are only read by typeI-migration.hpp.
         raw_cols  = [c for c in df.columns if c.endswith('_raw')]
         base_cols = [c for c in df.columns if c != 'zone' and not c.endswith('_raw')]
         if 'zone' in df.columns:

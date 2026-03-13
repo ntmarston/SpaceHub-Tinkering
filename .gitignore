@@ -64,4 +64,10 @@ simulations/**/
 simulations/*
 !simulations/**/*.cpp
 !simulations/*.cpp
+SpaceHub/test/verify_gas_drag/simulations/bin/*
+
+# misc/unsorted
 SpaceHub/src/interaction/disk-model.hpp.interp_backup
+CLAUDE.md
+temp_dev.md
+
