@@ -1,45 +1,67 @@
-.idea
-.vscode
-googletest/
-build
-docs/html/
-docs/xml/
-cmake-build-debug
-simulation_results/
-
-# Compiled binaries (files without extensions)
-# This must come before specific extension patterns
-*
-!*/
-!*.*
-
-# Re-ignore specific directories overriding !*/ above
-tutorial/
+#vscode, python, etc
 __pycache__/
+.idea/
+.vscode/
 .claude/
+# Common binary/media files at project root
+/*.pdf
+/*.docx
+/*.png
+/*.jpg
+/*.jpeg
+/*.gif
+/*.bmp
+/*.tiff
+/*.tif
+/*.svg
+/*.webp
+/*.eps
 
-# Backup files
-*.backup
-*.interp_backup
 
-# Simulation output files
-*.dat
-*.log
-energylog.txt
-output/
-**/output/
-**/results/
-misc_output/
+# Claude test directories
+claude_test/
+**/claude_test/
 
-# Image files
-*.png
-*.jpg
-*.jpeg
-*.gif
-*.bmp
-*.tiff
-*.webp
-*.svg
+# disktab subdirectories
+disktab/FairbairnData/
+disktab/figures/
+disktab/pagn/
+disktab/notebooks/*.pdf
+# Misc unsorted
+old_misc_toBeSorted/
 
-# PDF files
-*.pdf
+# Obsolete/Unused tests - compiled binaries and output
+SpaceHub/clocking_tests/ct_*
+SpaceHub/clocking_tests/*.dat
+SpaceHub/clocking_tests/*.log
+SpaceHub/clocking_tests/*.png
+SpaceHub/clocking_tests/*.jpg
+SpaceHub/clocking_tests/*.pdf
+SpaceHub/test/verify_gas_drag/out/
+SpaceHub/test/nick_test/disk_model/*.dat
+SpaceHub/test/nick_test/disk_model/*.log
+SpaceHub/test/nick_test/basic_tests/*.dat
+
+
+
+# Archive directories - ignore everything except source files
+**/archive/*
+**/archived/*
+!**/archive/*.cpp
+!**/archive/*.hpp
+!**/archive/*.py
+!**/archive/*.ipynb
+!**/archived/*.cpp
+!**/archived/*.hpp
+!**/archived/*.py
+!**/archived/*.ipynb
+
+# Documentation
+Documentation/
+
+# Simulations - ignore everything except .cpp files
+simulations/**/
+simulations/*
+!simulations/**/*.cpp
+!simulations/*.cpp
+SpaceHub/src/interaction/disk-model.hpp.interp_backup
