@@ -41,7 +41,7 @@ SpaceHub/test/verify_gas_drag/out/
 SpaceHub/test/nick_test/disk_model/*.dat
 SpaceHub/test/nick_test/disk_model/*.log
 SpaceHub/test/nick_test/basic_tests/*.dat
-
+SpaceHub/clocking_tests/*
 
 
 # Archive directories - ignore everything except source files

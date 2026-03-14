@@ -65,6 +65,8 @@ namespace hub::force
 
         static inline double Rmin;
         static inline double Rmax;
+        static inline double log_Rmin;
+        static inline double inv_dlogR;
 
         // Load pre-tabulated disk CSV before running solver
         static void init_from_file(const std::string& filename) {
@@ -72,6 +74,9 @@ namespace hub::force
             if (!disk_table.empty()) {
                 Rmin = disk_table.front().R;
                 Rmax = disk_table.back().R;
+                log_Rmin = log(Rmin);
+                double log_Rmax = log(Rmax);
+                inv_dlogR = (disk_table.size() - 1) / (log_Rmax - log_Rmin);
             }
         }
         static void load_disk_data(const std::string& filename) {
@@ -114,9 +119,15 @@ namespace hub::force
             if (R <= Rmin || R >= Rmax) return {0, 0, 0, 0};
 
             auto const& t = disk_table;
-            auto it = std::lower_bound(t.begin(), t.end(), R,
-                [](const DiskRow& row, double r) { return row.R < r; });
-            size_t i = (it - t.begin()) - 1;
+            // O(1) direct index: exploits perfectly log-spaced R grid.
+            // Replaces std::lower_bound binary search (~12 comparisons).
+            // To revert: replace these 3 lines with:
+            //   auto it = std::lower_bound(t.begin(), t.end(), R,
+            //       [](const DiskRow& row, double r) { return row.R < r; });
+            //   size_t i = (it - t.begin()) - 1;
+            double idx_f = (log(R) - log_Rmin) * inv_dlogR;
+            size_t i = static_cast<size_t>(idx_f);
+            if (i >= t.size() - 1) i = t.size() - 2;
 
             double frac = (R - t[i].R) / (t[i+1].R - t[i].R);
             auto lerp = [&](double f0, double f1) { return f0 + (f1 - f0) * frac; };
@@ -127,14 +138,9 @@ namespace hub::force
 
         // Sub-keplerian disk velocity corrected for pressure gradient (Armitage eq. 2.30)
         template <typename Vec>
-        static Vec disk_v(const Vec &r, double M, double n, double cs) {
-            auto rr = sqrt(r.x * r.x + r.y * r.y);
-            auto v_k = sqrt(consts::G * M / rr);
-            auto v_k2 = v_k * v_k;
-            auto cs2 = cs * cs;
-            auto corr_factor = sqrt(1 - n * (cs2 / v_k2));
-            auto v = v_k * corr_factor;
-            return Vec{-v * r.y / rr, v * r.x / rr, 0};
+        static Vec disk_v(const Vec &r, double R_cyl, double M, double n, double cs) {
+            auto v_disk_mag = sqrt(consts::G * M / R_cyl - n * cs * cs);
+            return Vec{-v_disk_mag * r.y / R_cyl, v_disk_mag * r.x / R_cyl, 0};
         }
         
         template <typename Particles>
@@ -195,16 +201,17 @@ namespace hub::force
             auto props = interp_all(R_cyl);
             double rho_c = props.rho, cs = props.cs, H = props.H, n = props.grad_P;
 
+            double cs2 = cs * cs;
             double rho = rho_c * exp(-0.5 * (z * z) / (H * H));
 
-            auto v_disk = disk_v(dr, m[0], n, cs);
+            auto v_disk = disk_v(dr, R_cyl, m[0], n, cs);
             auto v_rel = dv - v_disk;
             auto v2 = dot(v_rel, v_rel);
             auto vmag = sqrt(v2);
 
             if (vmag < 1e-10) continue;
 
-            auto r_eff = std::max(r[i], consts::G * m[i] / (v2 + cs * cs));
+            auto r_eff = std::max(r[i], consts::G * m[i] / (v2 + cs2));
             auto Mach = vmag / cs;
 
             double f_total = 0;
@@ -223,10 +230,11 @@ namespace hub::force
                 I = connect(Mach);
             }
 
-            // M^2 factor is absorbed into I(M) to avoid mixed mach/velocity dependence
+            // Hoyle-Lyttleton common factor (shared by dynamical friction and Bondi-Hoyle)
+            double f_HL = 4 * consts::pi * consts::G * consts::G * m[i] * m[i] * rho / cs2;
+
             if (enable_dynamical_friction) {
-                double f_dyn = I * 4 * consts::pi * consts::G * consts::G * m[i] * m[i] * rho / (cs * cs);
-                f_total += f_dyn;
+                f_total += I * f_HL;
             }
 
             if (enable_aerodynamic_drag) {
@@ -235,13 +243,13 @@ namespace hub::force
             }
 
             if (enable_bondi_hoyle) {
-                double f_HL = 4 * consts::pi * consts::G * consts::G * m[i] * m[i] * rho / (cs * cs);
-                double f_BH = f_HL / (1 + Mach * Mach);
-                f_total += f_BH;
+                f_total += f_HL / (1 + Mach * Mach);
             }
 
-            acceleration[i] -= f_total * v_rel / vmag / m[i];
-            acceleration[0] += f_total * v_rel / vmag / m[0];
+            double inv_vmag = 1.0 / vmag;
+            auto drag_acc = f_total * inv_vmag * v_rel;
+            acceleration[i] -= drag_acc / m[i];
+            acceleration[0] += drag_acc / m[0];
         }
     }
 
