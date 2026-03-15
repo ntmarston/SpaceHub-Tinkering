@@ -216,7 +216,7 @@ namespace hub::force
                 acceleration[0] -= accel_e * (m[i] / m[0]); //I think this is how the scaling should work?
             }
 
-            //==========Type I Migration Torque (Gilbaum+2025 Section 3.1 (uses JM17)==========
+            //==========Type I Migration Torque (Gilbaum+2025 Section 3.1 (uses JM17 lin_tot)==========
             if (migration_Jimenez) {
                 double q = m[i] / m[0];
                 double h = aspect_ratio;
@@ -239,11 +239,20 @@ namespace hub::force
 
                 // Torque -> tangential acceleration (Murray & Dermott T̄ component)
                 double T_bar = Gamma_I / (m[i] * R_cyl);
+
+                // Tbar * Rcyl/mag(Rcyl)
                 auto a_mig = Vec3{-dr.y, dr.x, 0.0} * (T_bar / R_cyl); //Causes problems if this is not disabled for retrograde orbits!
 
                 acceleration[i] += a_mig;
                 acceleration[0] -= a_mig * (m[i] / m[0]);
             }
+
+            //==================== Zhu+2019 model for inclined orbits =====================
+            //-------------------- Zhu+2019 inclined migration rate -----------------------
+            //TODO
+            //--------------------- Zhu+2019 inclination damping --------------------------
+            //TODO
+            
         }
     }
 

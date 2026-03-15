@@ -15,10 +15,11 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-INCLINATIONS=(90 105 120 135)
-N_WORKERS=4
+#INCLINATIONS=(90 105 120 135)
+INCLINATIONS=(120 135)
+N_WORKERS=2
 TEST_MODE=false
-TIMEOUT=115200 # 16 hours
+TIMEOUT=115200 # 32 hours
 
 for arg in "$@"; do
     [[ "$arg" == "--test" ]] && TEST_MODE=true
