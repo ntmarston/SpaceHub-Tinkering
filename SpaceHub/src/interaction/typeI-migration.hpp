@@ -60,8 +60,10 @@ namespace hub::force
         static inline bool initialized = false;
 
         // Force toggle flags (must be set before running solver)
+        // Eventually re-work to automatically determine which to use based on orbital parameters, but keep manual overrides for testing purposes
         static inline bool eccDamping_CN06 = true;
         static inline bool migration_Jimenez = true;
+        static inline bool inclined_zhu = true;
 
         // Convenience aliases
         static inline bool& eccentricity_damping = eccDamping_CN06;
@@ -98,7 +100,18 @@ namespace hub::force
                    >> row.rho >> comma >> row.P >> comma >> row.cs >> comma
                    >> row.H >> comma >> row.visc >> comma >> row.Sigma >> comma
                    >> row.Q >> comma >> row.grad_T >> comma >> row.grad_Sigma >> comma
-                   >> row.grad_P >> comma >> row.gamma >> comma >> row.f_thermal;
+                   >> row.grad_P;
+                // gamma and f_thermal are optional columns — only read if present.
+                // Must save defaults before attempting extraction: operator>> overwrites
+                // the target to 0 on parse failure (e.g. if the next column is a string
+                // like "zone"), destroying the default set above.
+                double g_default = row.gamma, f_default = row.f_thermal;
+                if (ss >> comma >> row.gamma) {
+                    ss >> comma >> row.f_thermal;
+                    if (ss.fail()) row.f_thermal = f_default;
+                } else {
+                    row.gamma = g_default;
+                }
                 disk_table.push_back(row);
             }
             initialized = true;
@@ -106,7 +119,7 @@ namespace hub::force
 
         // Linear interpolation of each disk property independently as f(R)
         static DiskProps interp_all(double R) {
-            if (R <= Rmin || R >= Rmax) return {0, 0, 0, 0, 0, 0, 0, 0, 5.0/3.0, 1.0};
+            if (std::isnan(R) || R <= Rmin || R >= Rmax) return {0, 0, 0, 0, 0, 0, 0, 0, 5.0/3.0, 1.0};
 
             auto const& t = disk_table;
             auto it = std::lower_bound(t.begin(), t.end(), R,
@@ -175,7 +188,8 @@ namespace hub::force
 
 
             
-            if (R_cyl <= Rmin || R_cyl > Rmax) continue; 
+            if (R_cyl <= Rmin || R_cyl > Rmax) continue; //Out of disk condition
+
 
             auto props = interp_all(R_cyl);
             double Sigma = props.Sigma, H = props.H, rho = props.rho,
@@ -201,11 +215,15 @@ namespace hub::force
             double e_tilde = ecc / aspect_ratio;
 
 
-            //==========CN06 Eccentricity Damping (Eq. 17, 19)==========
+            //==========CN06 Eccentric co-planar orbits==========
+            // The paper actually gives the acceleration vectors for this one (eqs 18/19 in CN06), which is very convenient
+            // Intended case: orbits which are not circular, but have negligible inclination (they are essentially co-planar with the midplane of the disk)
             if (eccDamping_CN06) {
+
+                //-------------CN06 Eccentricity Damping (Eq. 17, 19)-----------------
                 //This one does not have extrema lining up properly, temp fix by changing coefficients
                 //double Q_e = atan(-3.0 * e_tilde) * (2.0 / consts::pi) * 0.45 + 0.55;
-                double Q_e = atan(-3.0 * e_tilde) * (2.0 / consts::pi) * 0.9 + 1.0;
+                double Q_e = atan(-20.0 *(e_tilde-1)) * (2.0 / consts::pi) * 0.45 + 0.55;
                 double t_e = (Q_e / 0.78) * (m[0] / m[i]) * (m[0] / (Sigma * a_orb * a_orb)) * pow(aspect_ratio, 4) * (1.0 + 0.25 * pow(e_tilde, 3)) / Omega_k;
 
                 double vdotr = dot(dv, dr);
@@ -214,9 +232,25 @@ namespace hub::force
 
                 acceleration[i] += accel_e;
                 acceleration[0] -= accel_e * (m[i] / m[0]); //I think this is how the scaling should work?
+
+                //-------------CN06 Eccentric Migration-----------------
+                double beta = -grad_Sigma;  // CN06 beta = d(ln Sigma)/d(ln r), grad_Sigma = -d(ln Sigma)/d(ln r)
+                double q_inv = m[0] / m[i];
+                double sma = a_orb;
+                double pl00_corr1 = (ecc * R_cyl) / (1.3 * H);
+                double pl00_corr2 = (ecc * R_cyl) / (1.1 * H);
+                double pl00 = (1 + pow(pl00_corr1, 5)) / (1 - pow(pl00_corr2, 4));
+                double prefactor = 2/(2.7+1.1*beta); //EQ 16
+                double t_m = prefactor * q_inv * (m[0] / (Sigma*sma*sma)) * aspect_ratio * aspect_ratio * pl00 / Omega_k;
+                auto accel_m = - dv / t_m;
+                acceleration[i] += accel_m;
+                acceleration[0] -= accel_m * (m[i] / m[0]);
+
             }
 
             //==========Type I Migration Torque (Gilbaum+2025 Section 3.1 (uses JM17 lin_tot)==========
+            // intended case: circular (with a small tolerance) orbits with negligible or zero inclination
+            // most accurate, should be priority
             if (migration_Jimenez) {
                 double q = m[i] / m[0];
                 double h = aspect_ratio;
@@ -241,18 +275,79 @@ namespace hub::force
                 double T_bar = Gamma_I / (m[i] * R_cyl);
 
                 // Tbar * Rcyl/mag(Rcyl)
-                auto a_mig = Vec3{-dr.y, dr.x, 0.0} * (T_bar / R_cyl); //Causes problems if this is not disabled for retrograde orbits!
+                auto a_mig = typename Particles::Vector{-dr.y, dr.x, 0.0} * (T_bar / R_cyl); //Causes problems if this is not disabled for retrograde orbits!
 
                 acceleration[i] += a_mig;
                 acceleration[0] -= a_mig * (m[i] / m[0]);
             }
 
             //==================== Zhu+2019 model for inclined orbits =====================
-            //-------------------- Zhu+2019 inclined migration rate -----------------------
-            //TODO
-            //--------------------- Zhu+2019 inclination damping --------------------------
-            //TODO
-            
+            // Intended case: mildly inclined orbits (such that at least 90% of the orbit remains embedded in the disk) within a small eps of circular. 
+            if (inclined_zhu) {
+                if (incl < 1e-10) continue;
+
+                double q_mratio = m[i] / m[0];
+                double h_ar = aspect_ratio;  // Alias so I can keep notation consistent (This is H/R)
+                double I = incl;              // inclination, already computed above
+                double sinI2 = sin(I / 2.0); // Precomputing saves time later
+                double sinI  = sin(I);
+                double alpha_s = grad_Sigma;  // = -d(ln Sigma)/d(ln r) = Zhu's alpha_s
+
+                //-------------------- Zhu+2019 inclined migration rate (eqs 14-15) ----------------------
+                
+                // t_mig^{-1} from Zhu eq 15
+                double t_mig_inv = Omega_k * q_mratio * (Sigma * R_cyl * R_cyl / m[0])
+                                 / (h_ar * h_ar);
+
+                // tau_mig^{-1} from Zhu eq 14 (min of linear theory + dynamical friction)
+                double mig_branch1 = (2.7 + 1.1 * alpha_s) * t_mig_inv;
+                double mig_branch2 = 8.8 * h_ar * h_ar / (sinI2 * sinI) * t_mig_inv;
+                double tau_mig_inv = std::min(mig_branch1, mig_branch2);
+
+
+                double T_bar_zhu = -0.5 * R_cyl * Omega_k * tau_mig_inv;
+
+                auto a_mig_zhu = typename Particles::Vector{-dr.y, dr.x, 0.0} * (T_bar_zhu / R_cyl);
+
+                acceleration[i] += a_mig_zhu;
+                acceleration[0] -= a_mig_zhu * (m[i] / m[0]);
+
+                //--------------------- Zhu+2019 inclination damping (eqs 16-17) ------
+                // t_inc^{-1} from Zhu eq 17
+                double t_inc_inv = Omega_k * q_mratio * (Sigma * R_cyl * R_cyl / m[0])
+                                 / (h_ar * h_ar * h_ar * h_ar);
+
+                // tau_I^{-1} from R21 (min of linear and dynamical friction branches)
+                double inc_branch1 = 0.544 * t_inc_inv;
+                double inc_branch2 = 1.46 * h_ar*h_ar*h_ar*h_ar / (sinI2*sinI2*sinI2 * I) * t_inc_inv;
+                double tau_I_inv = std::min(inc_branch1, inc_branch2);
+
+                // Line of nodes: n = Z_hat x L_vec = (-L_vec.y, L_vec.x, 0)
+                auto n_vec = typename Particles::Vector{-L_vec.y, L_vec.x, 0.0};
+                double n_mag = sqrt(n_vec.x * n_vec.x + n_vec.y * n_vec.y);
+
+                auto n_hat = n_vec * (1.0 / n_mag);
+
+                // R22: N_bar = |r x v| / (r_vec . n_hat) * (-I * tau_I_inv)
+                double h_mag = norm(L_vec);  // specific angular momentum magnitude
+                double r_dot_nhat = dr.x * n_hat.x + dr.y * n_hat.y + dr.z * n_hat.z;
+
+                // Clamp |r_dot_nhat| to H (scale height) to prevent divergence at nodes
+                // Below H, the 2D disk-planet interaction formalism breaks down
+                double r_dot_nhat_clamped = (r_dot_nhat >= 0)
+                    ? std::max(r_dot_nhat, H) : std::min(r_dot_nhat, -H);
+
+                if (H > 1e-10) {
+                    double N_bar = (h_mag / r_dot_nhat_clamped) * (-I * tau_I_inv);
+
+                    // N_bar acts along orbit normal: w_hat = L_vec / |L_vec|
+                    auto w_hat = L_vec * (1.0 / h_mag);
+                    auto accel_inc = w_hat * N_bar;
+
+                    acceleration[i] += accel_inc;
+                    acceleration[0] -= accel_inc * (m[i] / m[0]);
+                }
+            }
         }
     }
 

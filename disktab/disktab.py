@@ -67,8 +67,8 @@ def _smooth_zone_gradients(model, n_gap=100, w=100):
         y = model[col].values.copy()
         model[f'{col}_raw'] = y.copy()
 
-        x0, y0 = log_R[i_lo - 1], y[i_lo - 1]  # last Standard anchor
-        x1, y1 = log_R[i_hi],     y[i_hi]        # first Self-Reg anchor
+        x0, y0 = log_R[i_lo - 1], y[i_lo - 1]  # last Standard 
+        x1, y1 = log_R[i_hi],     y[i_hi]        # first Self-Reg 
         dy0 = np.mean(np.gradient(y[i_lo - w - 1 : i_lo],     log_R[i_lo - w - 1 : i_lo]))
         dy1 = np.mean(np.gradient(y[i_hi         : i_hi + w + 1], log_R[i_hi : i_hi + w + 1]))
 

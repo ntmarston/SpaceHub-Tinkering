@@ -54,6 +54,7 @@ License
 #include "interaction/alpha-disk.hpp"
 #include "interaction/drag-forces.hpp"
 #include "interaction/disk-model.hpp" //user force
+#include "interaction/typeI-migration.hpp" //user force
 #include "interaction/magneto-disk.hpp"
 #include "interaction/newtonian.hpp"
 #include "interaction/post-newtonian.hpp"
