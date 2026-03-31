@@ -32,7 +32,7 @@ int main() {
     Particle p1{m1, r1};
     Particle p2{m2, r2};
 
-    auto orb = orbit::Elliptic(p1.mass, p2.mass, sma, 0.0, 0.5_deg, 0_deg, 0_deg, 0_deg);
+    auto orb = orbit::Elliptic(p1.mass, p2.mass, sma, 0.0, 10_deg, 0_deg, 0_deg, 0_deg);
     orbit::move_particles(orb, p2);
     orbit::move_to_COM_frame(p1, p2);
 
@@ -41,7 +41,7 @@ int main() {
     Solver::RunArgs args;
     args.rtol = 1e-9;
 
-    auto stop_time = 100000_year;
+    auto stop_time = 1e5_year;
     args.add_stop_condition(stop_time);
     args.add_operation(TimeSlice(DefaultWriter("out/zhu.dat"), 0_year, stop_time, 1000));
 

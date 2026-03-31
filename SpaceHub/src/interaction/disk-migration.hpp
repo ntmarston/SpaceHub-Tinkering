@@ -64,6 +64,10 @@ namespace hub::force
         static inline bool CN06_MIG_DECOUPLED = false;
         static inline bool migration_Jimenez = false;
         static inline bool inclined_zhu = false;
+        static inline bool ensemble = false;
+
+        double ecc_tol; // TODO below which is considered circular
+        double incl_tol; // TODO below which is considered in-plane
 
         // Convenience aliases
         //static inline bool& eccentricity_damping = LoweccDamping_CN06;
@@ -176,11 +180,10 @@ namespace hub::force
         auto const &m = particles.mass();
         auto const &r = particles.radius();
 
-        double ecc_tol; // TODO below which is considered circular
-        double incl_tol; // TODO below which is considered in-plane
+        
 
         //TODO these
-        // if (override bools not set by user)
+        // if (ensemble)
         // if ecc < ecc_tol -> circular=true
         // if incl < incl_tol -> in_plane=true
         // if circular && in_plane -> Jimenez
