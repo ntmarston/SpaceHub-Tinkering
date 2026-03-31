@@ -41,22 +41,20 @@ using namespace hub::unit;
 
 namespace hub::force
 {
-    // Set of values extracted for a specific R from the table
-    struct DiskRow {
-        double R, R_Rg, Tc, rho, P, cs, H, visc, Sigma, Q, grad_T, grad_Sigma, grad_P, gamma, f_thermal;
-    };
-
-    // Set of interpolated properties, returned by the interp_all() method
-    struct DiskProps {
-        double Sigma, H, rho, Tc, cs, grad_T, grad_Sigma, grad_P, gamma, f_thermal;
-    };
-
-    class DiskModel
+    class DiskMigration
     {
     public:
+        struct DiskRow {
+            double R, R_Rg, Tc, rho, P, cs, H, visc, Sigma, Q, grad_T, grad_Sigma, grad_P, gamma, f_thermal;
+        };
+
+        struct DiskProps {
+            double Sigma, H, rho, Tc, cs, grad_T, grad_Sigma, grad_P, gamma, f_thermal;
+        };
+
         constexpr static bool vel_dependent{true};
 
-        static inline std::vector<DiskRow> disk_table; // A list of objects corresponding to single R-indexed rows in the disk file
+        static inline std::vector<DiskRow> disk_table;
         static inline bool initialized = false;
 
         // Force toggle flags (must be set before running solver)
@@ -91,7 +89,7 @@ namespace hub::force
             disk_table.clear();
             std::ifstream file(filename);
             if (!file) {
-                throw std::runtime_error("DiskModel Error: Cannot open disk file (!file): " + filename);
+                throw std::runtime_error("DiskMigration Error: Cannot open disk file (!file): " + filename);
             }
 
             std::string line;
@@ -166,10 +164,10 @@ namespace hub::force
     };
 
     template <typename Particles>
-    void DiskModel::add_acc_to(const Particles &particles, typename Particles::VectorArray &acceleration)
+    void DiskMigration::add_acc_to(const Particles &particles, typename Particles::VectorArray &acceleration)
     {
         if (!initialized) {
-            throw std::runtime_error("DiskModel Error: Not initialized! Call DiskModel::init_from_file() first.");
+            throw std::runtime_error("DiskMigration Error: Not initialized! Call DiskMigration::init_from_file() first.");
         }
 
         size_t num = particles.number();
