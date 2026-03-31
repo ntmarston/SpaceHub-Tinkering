@@ -45,6 +45,10 @@ SpaceHub/clocking_tests/*
 SpaceHub/test/nick_test/crash_test/*
 SpaceHub/test/nick_test/disk_model/*
 SpaceHub/test/nick_test/type_I_migration/*
+SpaceHub/test/migration_test/out/
+SpaceHub/test/migration_test/CN06Test
+SpaceHub/test/migration_test/JimenezTest
+SpaceHub/test/migration_test/ZhuTest
 
 
 # Archive directories - ignore everything except source files
