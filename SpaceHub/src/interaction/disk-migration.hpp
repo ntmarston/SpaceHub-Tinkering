@@ -61,17 +61,24 @@ namespace hub::force
 
         // Force toggle flags (must be set before running solver)
         // Eventually re-work to automatically determine which to use based on orbital parameters, but keep manual overrides for testing purposes
-        static inline bool eccDamping_CN06 = true;
-        static inline bool migration_Jimenez = true;
-        static inline bool inclined_zhu = true;
+        static inline bool LoweccDamping_CN06 = true;
+        static inline bool CN06_ECC_DECOUPLED = false;
+        static inline bool CN06_MIG_DECOUPLED = false;
+        static inline bool migration_Jimenez = false;
+        static inline bool inclined_zhu = false;
 
         // Convenience aliases
-        static inline bool& eccentricity_damping = eccDamping_CN06;
+        //static inline bool& eccentricity_damping = LoweccDamping_CN06;
         static inline bool& migration = migration_Jimenez;
 
         static inline double Rmin;
         static inline double Rmax;
 
+        /*
+        ==================================================================================================================================================
+                                            ========================HELPER METHOD IMPLEMENTATIONS======================
+        ==================================================================================================================================================
+        */
         // Load pre-tabulated disk CSV before running solver
         static void init_from_file(const std::string& filename) {
             load_disk_data(filename);
@@ -202,15 +209,20 @@ namespace hub::force
             if (R_cyl <= Rmin || R_cyl > Rmax) continue; //Out of disk condition
 
 
+            //===============================LOAD DISK PROPERTIES FROM CSV================================
             auto props = interp_all(R_cyl);
             double Sigma = props.Sigma, H = props.H, rho = props.rho,
                    Tc = props.Tc, cs = props.cs, grad_T = props.grad_T,
                    grad_Sigma = props.grad_Sigma, grad_P = props.grad_P,
                    gamma = props.gamma, f_thermal = props.f_thermal;
 
-            //double rho = rho_c * exp(-0.5 * (z * z) / (H * H));
+            
+            
+            //=========================CALCULATE SIMPLE PROPERTIES==================================
+            
 
             auto v_disk = disk_v(dr, m[0], grad_P, cs);
+            //double rho = rho_c * exp(-0.5 * (z * z) / (H * H)); //Gaussian density profile
             auto v_rel = dv - v_disk;
             auto v2 = dot(v_rel, v_rel);
             auto vmag = sqrt(v2);
@@ -225,11 +237,12 @@ namespace hub::force
             double aspect_ratio = H/R_cyl;
             double e_tilde = ecc / aspect_ratio;
 
-
-            //==========CN06 Eccentric co-planar orbits==========
-            // The paper actually gives the acceleration vectors for this one (eqs 18/19 in CN06), which is very convenient
+            //==================================================================================================================================================
+            //                                    ==========CN06 Eccentric co-planar orbits==========
+            // The paper actually gives the acceleration vectors for this one (eqs 18/19 in CN06), which is very convenient -> TODO re-derive for higher eccentricity orbits
             // Intended case: orbits which are not circular, but have negligible inclination (they are essentially co-planar with the midplane of the disk)
-            if (eccDamping_CN06) {
+            // =========================================LOW ECCENTRICITY APPROXIMATION================================================================
+            if (LoweccDamping_CN06) {
 
                 //-------------CN06 Eccentricity Damping (Eq. 17, 19)-----------------
                 //This one does not have extrema lining up properly, temp fix by changing coefficients
@@ -258,10 +271,41 @@ namespace hub::force
                 acceleration[0] -= accel_m * (m[i] / m[0]);
 
             }
+            // =========================================DECOUPLED ECCENTRICITY DAMPING================================================================
+            if (CN06_ECC_DECOUPLED) {
 
-            //==========Type I Migration Torque (Gilbaum+2025 Section 3.1 (uses JM17 lin_tot)==========
+                //-------------CN06 Eccentricity Damping (Eq. 17, 19)-----------------
+                //This one does not have extrema lining up properly, temp fix by changing coefficients
+                //double Q_e = atan(-3.0 * e_tilde) * (2.0 / consts::pi) * 0.45 + 0.55;
+                double Q_e = atan(-20.0 *(e_tilde-1)) * (2.0 / consts::pi) * 0.45 + 0.55;
+                double t_e = (Q_e / 0.78) * (m[0] / m[i]) * (m[0] / (Sigma * a_orb * a_orb)) * pow(aspect_ratio, 4) * (1.0 + 0.25 * pow(e_tilde, 3)) / Omega_k;
+
+                double vdotr = dot(dv, dr);
+                if (std::abs(vdotr) < 1e-5) {
+                    vdotr = std::copysign(1e-5, vdotr);
+                }
+
+                double r2 = dot(dr, dr);
+                
+                double L = norm(L_vec);
+                double r_mag = sqrt(r2);
+                double T_bar = ecc * ecc * L / (r_mag * (1.0 - ecc * ecc) * t_e);
+                double R_bar = -T_bar * L / vdotr;
+                auto r_hat = dr * (1.0 / r_mag);
+                auto accel_e = r_hat * R_bar + cross(L_vec * (1.0 / L), r_hat) * T_bar;
+
+                acceleration[i] += accel_e;
+                acceleration[0] -= accel_e * (m[i] / m[0]); //I think this is how the scaling should work?
+
+
+            }
+
+
+            ////==================================================================================================================================================
+            //                          ==========Type I Migration Torque (Gilbaum+2025 Section 3.1 (uses JM17 lin_tot)==========
             // intended case: circular (with a small tolerance) orbits with negligible or zero inclination
             // most accurate, should be priority
+            //==================================================================================================================================================
             if (migration_Jimenez) {
                 double q = m[i] / m[0];
                 double h = aspect_ratio;
@@ -292,8 +336,11 @@ namespace hub::force
                 acceleration[0] -= a_mig * (m[i] / m[0]);
             }
 
-            //==================== Zhu+2019 model for inclined orbits =====================
+
+            //==================================================================================================================================================
+            //                              ==================== Zhu+2019 model for inclined orbits =====================
             // Intended case: mildly inclined orbits (such that at least 90% of the orbit remains embedded in the disk) within a small eps of circular. 
+            //==================================================================================================================================================
             if (inclined_zhu) {
                 if (incl < 1e-10) continue; //1e-3h/r
 
