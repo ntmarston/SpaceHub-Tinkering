@@ -171,7 +171,18 @@ namespace hub::force
         auto const &m = particles.mass();
         auto const &r = particles.radius();
 
-        
+        double ecc_tol; // TODO below which is considered circular
+        double incl_tol; // TODO below which is considered in-plane
+
+        //TODO these
+        // if (override bools not set by user)
+        // if ecc < ecc_tol -> circular=true
+        // if incl < incl_tol -> in_plane=true
+        // if circular && in_plane -> Jimenez
+        // elif circular && !in_plane -> Zhu
+        // elif !circular && in_plane -> CN06
+        // else -> dynamical friction (need to call the disk-model add_acc_to method?)
+
 
         for (size_t i = 1; i < num; ++i)
         {
@@ -284,7 +295,7 @@ namespace hub::force
             //==================== Zhu+2019 model for inclined orbits =====================
             // Intended case: mildly inclined orbits (such that at least 90% of the orbit remains embedded in the disk) within a small eps of circular. 
             if (inclined_zhu) {
-                if (incl < 1e-10) continue;
+                if (incl < 1e-10) continue; //1e-3h/r
 
                 double q_mratio = m[i] / m[0];
                 double h_ar = aspect_ratio;  // Alias so I can keep notation consistent (This is H/R)
