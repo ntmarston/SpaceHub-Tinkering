@@ -743,7 +743,7 @@ class TwoBodyOrbit:
             ax.set_xlim(xlim)
             ax.set_title(cfg['title'])
             ax.set_ylabel(cfg['ylabel'])
-            ax.set_xlabel(r'$yr (2\pi)^{-1}$')
+            ax.set_xlabel(r'$2\pi\mathrm{yr}^{-1}$')
 
             # Determine ylim for this plot
             plot_ylim = ylim_list[idx]
@@ -784,7 +784,7 @@ class TwoBodyOrbit:
             ax.set_xlim(xlim)
             ax.set_title(cfg['title'])
             ax.set_ylabel(cfg['ylabel'])
-            ax.set_xlabel(r'$yr (2\pi)^{-1}$')
+            ax.set_xlabel(r'$2\pi\mathrm{yr}^{-1}$')
             if cfg['ylim']:
                 ax.set_ylim(cfg['ylim'])
             if cfg.get('fmt'):
