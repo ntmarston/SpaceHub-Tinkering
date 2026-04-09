@@ -246,7 +246,6 @@ namespace hub::force
             if (LoweccDamping_CN06) {
 
                 //-------------CN06 Eccentricity Damping (Eq. 17, 19)-----------------
-                //This one does not have extrema lining up properly, temp fix by changing coefficients
                 //double Q_e = atan(-3.0 * e_tilde) * (2.0 / consts::pi) * 0.45 + 0.55;
                 double Q_e = atan(-20.0 *(e_tilde-1)) * (2.0 / consts::pi) * 0.45 + 0.55;
                 double t_e = (Q_e / 0.78) * (m[0] / m[i]) * (m[0] / (Sigma * a_orb * a_orb)) * pow(aspect_ratio, 4) * (1.0 + 0.25 * pow(e_tilde, 3)) / Omega_k;
@@ -276,8 +275,7 @@ namespace hub::force
             if (CN06_ECC_DECOUPLED) {
 
                 //-------------CN06 Eccentricity Damping (Eq. 17, 19)-----------------
-                //This one does not have extrema lining up properly, temp fix by changing coefficients
-                //double Q_e = atan(-3.0 * e_tilde) * (2.0 / consts::pi) * 0.45 + 0.55;
+                
                 double Q_e = atan(-20.0 *(e_tilde-1)) * (2.0 / consts::pi) * 0.45 + 0.55;
                 double t_e = (Q_e / 0.78) * (m[0] / m[i]) * (m[0] / (Sigma * a_orb * a_orb)) * pow(aspect_ratio, 4) * (1.0 + 0.25 * pow(e_tilde, 3)) / Omega_k;
 

@@ -12,6 +12,8 @@ import numpy as np
 from numpy import pi
 import pandas as pd
 import seaborn as sns
+import warnings
+from scipy.interpolate import CubicHermiteSpline
 
 # Pre-computed coefficients for Newton solver (depend on R only, not Tc)
 RadiusCoeffs = namedtuple('RadiusCoeffs', ['f', 'Omega', 'A', 'B', 'C', 'D', 'E', 'F'])
@@ -39,8 +41,7 @@ def _smooth_zone_gradients(model, n_gap=100, w=100):
     w : int
         Half-window for slope estimation outside the gap (default 100).
     """
-    import warnings
-    from scipy.interpolate import CubicHermiteSpline
+    
 
     if 'zone' not in model.columns:
         return
@@ -1000,6 +1001,7 @@ class AGNDisk:
         # Get power-law solutions if requested
         if include_powerlaw:
             df_powerlaw = self._get_powerlaw_df()
+            df_powerlaw["zone"] = df_powerlaw["zone"].map({1: "Zone 1", 2: "Zone 2", 3: "Zone 3"})
 
         for i, col_name in enumerate(cols):
             # Only add labels on the first plot for the legend
