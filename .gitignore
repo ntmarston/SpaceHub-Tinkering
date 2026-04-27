@@ -30,25 +30,19 @@ disktab/notebooks/*.pdf
 # Misc unsorted
 old_misc_toBeSorted/
 
-# Obsolete/Unused tests - compiled binaries and output
-SpaceHub/clocking_tests/ct_*
-SpaceHub/clocking_tests/*.dat
-SpaceHub/clocking_tests/*.log
-SpaceHub/clocking_tests/*.png
-SpaceHub/clocking_tests/*.jpg
-SpaceHub/clocking_tests/*.pdf
-SpaceHub/test/verify_gas_drag/out/
-SpaceHub/test/nick_test/disk_model/*.dat
-SpaceHub/test/nick_test/disk_model/*.log
-SpaceHub/test/nick_test/basic_tests/*.dat
-SpaceHub/clocking_tests/*
-SpaceHub/test/nick_test/crash_test/*
-SpaceHub/test/nick_test/disk_model/*
-SpaceHub/test/nick_test/type_I_migration/*
-SpaceHub/test/migration_test/out/
-SpaceHub/test/migration_test/CN06Test
-SpaceHub/test/migration_test/JimenezTest
-SpaceHub/test/migration_test/ZhuTest
+# SpaceHub/test - binaries, logs, and simulation output (all subdirectories)
+SpaceHub/test/**/*.dat
+SpaceHub/test/**/*.log
+SpaceHub/test/**/bin/
+SpaceHub/test/**/out/
+
+SpaceHub/clocking_tests/
+SpaceHub/test/nick_test/
+SpaceHub/test/old/
+SpaceHub/test/migration_test/*
+!SpaceHub/test/migration_test/*.cpp
+
+
 
 
 # Archive directories - ignore everything except source files
@@ -71,10 +65,10 @@ simulations/**/
 simulations/*
 !simulations/**/*.cpp
 !simulations/*.cpp
-SpaceHub/test/verify_gas_drag/simulations/bin/*
 
 # misc/unsorted
 SpaceHub/src/interaction/disk-model.hpp.interp_backup
 CLAUDE.md
 temp_dev.md
 
+utest-diskmigration.md
