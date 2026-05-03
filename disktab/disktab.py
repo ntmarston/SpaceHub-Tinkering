@@ -271,6 +271,16 @@ class AGNDisk:
         _n = int(min(100, 0.1 * len(self.model)))
         _smooth_zone_gradients(self.model, n_gap=_n, w=_n)
 
+        # v_disk: sub-Keplerian azimuthal speed (Armitage eq. 2.30).
+        # v_disk = sqrt(GM/R - grad_P * cs²).
+        # Computed here (not in _full_disk_solution/_self_regulating_solution) because
+        # grad_P requires the full radial array and is only available after this point.
+        _R   = self.model['R'].values
+        _cs  = self.model['cs'].values
+        _gP  = self.model['grad_P'].values
+        _vk2 = self._G_val * self._M_val / _R
+        self.model['v_disk'] = np.sqrt(np.maximum(_vk2 - _gP * _cs**2, 0.0))
+
         return self.model
 
     def _compute_coefficients(self, R):
@@ -725,6 +735,25 @@ class AGNDisk:
             # Compute Toomre Q using pre-computed Omega (inlined from _toomreQ)
             toomreQi = ((csi * Omega) / (pi * G * Sigmai)).si
 
+            #Compute sub-keplerian disk velocity (save computation in SpaceHub)
+
+            # Compute gamma (radiation vs gas pressure dominated)
+            gamma_i = 4.0/3.0 if t2 > t1 else 5.0/3.0
+
+            # Thermal diffusivity (Grishin 2024 eq 15) and f_thermal (Gilbaum+2025 Eq. A5)
+            Tc_K      = Tc.si.value
+            rho_sv    = rhoi.value
+            H_sv      = Hi.value
+            Omega_sv  = Omega.si.value
+            kappa_es_i = 0.04                                      # m^2/kg, electron scattering
+            kappa_kr_i = 6.4e18 * rho_sv * Tc_K**(-3.5)          # m^2/kg, Kramers
+            kappa_i   = kappa_es_i + kappa_kr_i
+            chi_i     = (16 * gamma_i * (gamma_i - 1) * sigma_sb.value * Tc_K**4
+                         / (3 * kappa_i * rho_sv**2 * H_sv**2 * Omega_sv**2))
+            x_thermal_i   = chi_i / (H_sv**2 * Omega_sv)
+            sqrt_halfx_i  = np.sqrt(x_thermal_i / 2)
+            f_thermal_i   = (sqrt_halfx_i + 1/gamma_i) / (sqrt_halfx_i + 1)
+
             row = {
                 "R": R.si.value,
                 "R/Rg": (R / self.gRad).value,
@@ -736,7 +765,9 @@ class AGNDisk:
                 "visc": visci.value,
                 "Sigma": Sigmai.value,
                 "tau": taui.value,
-                "Q": toomreQi.value
+                "Q": toomreQi.value,
+                "gamma": gamma_i,
+                "f_thermal": f_thermal_i
             }
             rows.append(row)
 
@@ -916,6 +947,24 @@ class AGNDisk:
             nr["visc"] = visc.si.value
             nr["Sigma"] = Sigma.si.value
             nr["Q"] = Q.decompose().value
+
+            # gamma and f_thermal — same physics as _full_disk_solution
+            Tc_K    = Tc.si.value
+            rho_sv  = rho.si.value
+            H_sv    = H.si.value
+            Omega_sv = Omega.si.value
+            t1_gas  = rho_sv * k_B.si.value * Tc_K / (self.mu * m_p.si.value)
+            t2_rad  = 4 * sigma_sb.value * Tc_K**4 / (3 * c.si.value)
+            gamma_i = 4.0/3.0 if t2_rad > t1_gas else 5.0/3.0
+            kappa_es_i  = 0.04
+            kappa_kr_i  = 6.4e18 * rho_sv * Tc_K**(-3.5)
+            kappa_i     = kappa_es_i + kappa_kr_i
+            chi_i       = (16 * gamma_i * (gamma_i - 1) * sigma_sb.value * Tc_K**4
+                           / (3 * kappa_i * rho_sv**2 * H_sv**2 * Omega_sv**2))
+            x_thermal_i = chi_i / (H_sv**2 * Omega_sv)
+            sqrt_halfx_i = np.sqrt(x_thermal_i / 2)
+            nr["gamma"]     = gamma_i
+            nr["f_thermal"] = (sqrt_halfx_i + 1/gamma_i) / (sqrt_halfx_i + 1)
 
             rows.append(nr)
 
@@ -1133,32 +1182,8 @@ class AGNDisk:
         conv_viscosity = T_unit / AU_m**2               # m²/s → AU²/T
         conv_surface_density = AU_m**2 / Msun_kg        # kg/m² → M☉/AU²
 
-        # Create converted DataFrame
+        # Create converted DataFrame (gamma and f_thermal already set by generate())
         df = self.model.copy()
-
-        # Compute dimensionless columns from SI values (before unit conversion)
-        Tc_SI = df['Tc'].values                          # K
-        rho_SI = df['rho'].values                        # kg/m^3
-        R_SI = df['R'].values                            # m
-        H_SI = df['H'].values                            # m
-
-        P_rad = 4 * sigma_sb.value * Tc_SI**4 / (3 * c.value)
-        P_gas = rho_SI * k_B.value * Tc_SI / (self.mu * m_p.value)
-        gamma_arr = np.where(P_rad > P_gas, 4.0/3.0, 5.0/3.0)
-
-        # Thermal saturation factor f(x) (Gilbaum+2025 Eq. A5, JM17)
-        Omega_SI = np.sqrt(G.value * self.M.to(u.kg).value / R_SI**3)
-        kappa_es = 0.04                                  # m^2/kg, electron scattering
-        kappa_kr = 6.4e18 * rho_SI * Tc_SI**(-3.5)      # m^2/kg, Kramers
-        kappa_SI = kappa_es + kappa_kr
-        chi = (16 * gamma_arr * (gamma_arr - 1) * sigma_sb.value * Tc_SI**4
-               / (3 * kappa_SI * rho_SI**2 * H_SI**2 * Omega_SI**2))
-        x_thermal = chi / (H_SI**2 * Omega_SI)
-        sqrt_halfx = np.sqrt(x_thermal / 2)
-        f_thermal = (sqrt_halfx + 1/gamma_arr) / (sqrt_halfx + 1)
-
-        df['gamma'] = gamma_arr
-        df['f_thermal'] = f_thermal
 
         # Apply conversions
         df["R"] = df["R"] * conv_length
@@ -1170,21 +1195,369 @@ class AGNDisk:
         df["H"] = df["H"] * conv_length
         df["visc"] = df["visc"] * conv_viscosity
         df["Sigma"] = df["Sigma"] * conv_surface_density
+        df["v_disk"] = df["v_disk"] * conv_velocity
         # Q, grad_T, grad_Sigma, grad_P are dimensionless, unchanged
         # zone is a string label, unchanged
 
-        # Reorder: numeric base columns → zone → _raw columns (if any).
-        # disk-model.hpp reads first 13 cols by position (up to grad_P).
-        # gamma and f_thermal (cols 14-15) are only read by typeI-migration.hpp.
-        raw_cols  = [c for c in df.columns if c.endswith('_raw')]
-        base_cols = [c for c in df.columns if c != 'zone' and not c.endswith('_raw')]
-        if 'zone' in df.columns:
-            df = df[base_cols + ['zone'] + raw_cols]
-        elif raw_cols:
-            df = df[base_cols + raw_cols]
+        # Enforce column order required by disk-model.hpp, which reads by position:
+        # cols 1-13: R R/Rg Tc rho P cs H visc Sigma Q grad_T grad_Sigma grad_P
+        # cols 14-16: gamma f_thermal v_disk (optional in C++)
+        # zone and _raw columns are ignored by C++ but kept for Python use.
+        fixed_order = ['R', 'R/Rg', 'Tc', 'rho', 'P', 'cs', 'H', 'visc', 'Sigma', 'Q',
+                       'grad_T', 'grad_Sigma', 'grad_P', 'gamma', 'f_thermal', 'v_disk']
+        raw_cols   = [c for c in df.columns if c.endswith('_raw')]
+        zone_col   = ['zone'] if 'zone' in df.columns else []
+        present    = [c for c in fixed_order if c in df.columns]
+        extra_cols = [c for c in df.columns
+                      if c not in fixed_order and c != 'zone' and not c.endswith('_raw')]
+        df = df[present + zone_col + raw_cols + extra_cols]
 
         self.model_spacehub = df
         return df
+
+
+    def generate_constant_test_model(self, rvals, zone=1):
+        """
+        Generate a CSV-compatible disk profile with constant values across all radii.
+
+        Every disk property (Tc, rho, P, cs, H, visc, Sigma, Q, gradients, gamma,
+        f_thermal) is evaluated once at a single "typical" radius (the geometric
+        mean of rvals for log-spaced grids, the arithmetic mean for linear grids,
+        snapped to the nearest actual row) and broadcast to every row of the
+        output. Only R and R/Rg vary across rows. For zone in {1, 2, 3} the
+        values come from the Shakura-Sunyaev power-law solutions in
+        ``simple_disk.py`` (no Newton solve); for ``zone="Self-Reg"`` the values
+        are pulled from the matching row of ``self.model`` (regenerated via
+        ``self.generate(sirko_goodman=True)`` if absent or inconsistent with
+        rvals). Output is converted to SpaceHub units using the same constants
+        as ``spacehub_pretab``.
+
+        Parameters
+        ----------
+        rvals : array_like
+            1-D, monotonically increasing, dimensionless multiples of Rg.
+            Length must be at least 500.
+        zone : {1, 2, 3, "Self-Reg"}
+            Which Shakura-Sunyaev zone to evaluate (or the Sirko-Goodman
+            self-regulating branch).
+
+        Returns
+        -------
+        pandas.DataFrame
+            Columns, in order:
+            ``R, R/Rg, Tc, rho, P, cs, H, visc, Sigma, Q, grad_T, grad_Sigma,
+            grad_P, gamma, f_thermal, zone`` — in SpaceHub units (AU, M☉,
+            yr/(2π)). Also stored on ``self.model_spacehub``.
+        """
+        # ---- 1. Validate inputs -------------------------------------------------
+        if zone not in (1, 2, 3, "Self-Reg"):
+            raise ValueError(
+                f"zone must be 1, 2, 3, or 'Self-Reg'; got {zone!r}"
+            )
+        rvals = np.asarray(rvals)
+        if rvals.ndim != 1:
+            raise ValueError("rvals must be 1-D")
+        if len(rvals) < 500:
+            raise ValueError(
+                f"generate_constant_test_model requires at least 500 radial "
+                f"points, got {len(rvals)}."
+            )
+        if not np.all(np.diff(rvals) > 0):
+            raise ValueError("rvals must be strictly monotonically increasing")
+        if self.M is None:
+            raise ValueError("M (black hole mass) must be set before calling generate_constant_test_model()")
+        if self.Mdot is None:
+            raise ValueError("Mdot (accretion rate) must be set before calling generate_constant_test_model()")
+        if self.alpha is None:
+            raise ValueError("alpha (viscosity parameter) must be set before calling generate_constant_test_model()")
+
+        # ---- 2. Gravitational radius -------------------------------------------
+        if self.gRad is None:
+            self.gRad = (G * self.M / c / c).to(u.m)
+
+        # ---- 3. Pick the typical radius ----------------------------------------
+        rel_std_lin = np.std(np.diff(rvals)) / np.mean(np.diff(rvals))
+        rel_std_log = np.std(np.diff(np.log(rvals))) / np.mean(np.diff(np.log(rvals)))
+        if rel_std_log < 1e-6:
+            r_typ_target = np.exp(np.mean(np.log(rvals)))
+            chosen_idx = int(np.argmin(np.abs(np.log(rvals) - np.log(r_typ_target))))
+        elif rel_std_lin < 1e-6:
+            r_typ_target = np.mean(rvals)
+            chosen_idx = int(np.argmin(np.abs(rvals - r_typ_target)))
+        else:
+            warnings.warn(
+                "rvals is neither strictly log-spaced nor strictly linear-spaced; "
+                "falling back to the geometric mean as the typical radius."
+            )
+            r_typ_target = np.exp(np.mean(np.log(rvals)))
+            chosen_idx = int(np.argmin(np.abs(np.log(rvals) - np.log(r_typ_target))))
+
+        r_typ = float(rvals[chosen_idx])           # in Rg-multiples (dimensionless)
+        R_typ = r_typ * self.gRad                  # astropy Quantity in metres
+
+        # ---- 4. SI values at the typical radius --------------------------------
+        if zone in (1, 2, 3):
+            fMdot = self.Mdot.to(u.kg / u.s)
+            Tc_q    = sd.T_central(alpha=self.alpha, M=self.M, fMdot=fMdot, r=R_typ, zone=zone, scale="AGN")
+            rho_q   = sd.rho      (alpha=self.alpha, M=self.M, fMdot=fMdot, r=R_typ, zone=zone, scale="AGN")
+            Sigma_q = sd.Sigma    (alpha=self.alpha, M=self.M, fMdot=fMdot, r=R_typ, zone=zone, scale="AGN")
+            P_q     = sd.pressure (alpha=self.alpha, M=self.M, fMdot=fMdot, r=R_typ, zone=zone, scale="AGN")
+            H_q     = sd.h        (alpha=self.alpha, M=self.M, fMdot=fMdot, r=R_typ, zone=zone, scale="AGN")
+            Omega_q = sd.Omega    (alpha=self.alpha, M=self.M, fMdot=fMdot, r=R_typ, zone=zone, scale="AGN")
+
+            Tc_SI    = Tc_q.si.value
+            rho_SI   = rho_q.si.value
+            Sigma_SI = Sigma_q.si.value
+            P_SI     = P_q.si.value
+            H_SI     = H_q.si.value
+            Omega_SI = Omega_q.si.value
+
+            cs_SI   = np.sqrt(P_SI / rho_SI)
+            visc_SI = self.alpha * cs_SI * H_SI
+
+            # Toomre Q = cs * Omega / (pi * G * Sigma), explicitly dimensionless
+            Q_q = (cs_SI * (u.m/u.s) * Omega_SI * (1/u.s)) / (np.pi * G * Sigma_SI * (u.kg/u.m**2))
+            Q_val = float(Q_q.to(u.dimensionless_unscaled).value)
+
+            # Analytical log-gradients: grad_Y = -d ln Y / d ln r = -pindices[3]
+            grad_table = {
+                1: dict(grad_T=3.0/8.0,  grad_Sigma=-3.0/2.0, grad_P=3.0/2.0),
+                2: dict(grad_T=9.0/10.0, grad_Sigma=3.0/5.0,  grad_P=51.0/20.0),
+                3: dict(grad_T=3.0/4.0,  grad_Sigma=3.0/4.0,  grad_P=21.0/8.0),
+            }
+            grad_T     = grad_table[zone]['grad_T']
+            grad_Sigma = grad_table[zone]['grad_Sigma']
+            grad_P     = grad_table[zone]['grad_P']
+
+            v_k_SI    = Omega_SI * R_typ.si.value   # sqrt(GM/R)
+            v_disk_SI = np.sqrt(max(v_k_SI**2 - grad_P * cs_SI**2, 0.0))
+
+            zone_label = "Standard"
+
+        else:  # zone == "Self-Reg"
+            need_regen = True
+            if self.model is not None and 'zone' in self.model.columns:
+                if (chosen_idx < len(self.model) and
+                        np.isclose(self.model['R/Rg'].iloc[chosen_idx], r_typ, rtol=1e-6)):
+                    need_regen = False
+
+            if need_regen:
+                self.generate(rvals=rvals, sirko_goodman=True)
+
+            row = self.model.iloc[chosen_idx]
+            if row['zone'] != 'Self-Reg':
+                raise ValueError(
+                    "typical radius for the supplied rvals is in the Standard "
+                    "zone — pass an `rvals` range that lies wholly within the "
+                    "Self-Reg zone, or pre-set `self.selfreg_threshold` and "
+                    "choose larger radii"
+                )
+
+            Tc_SI    = float(row['Tc'])
+            rho_SI   = float(row['rho'])
+            P_SI     = float(row['P'])
+            cs_SI    = float(row['cs'])
+            H_SI     = float(row['H'])
+            visc_SI  = float(row['visc'])
+            Sigma_SI = float(row['Sigma'])
+            Q_val    = float(row['Q'])
+            grad_T     = float(row['grad_T'])
+            grad_Sigma = float(row['grad_Sigma'])
+            grad_P     = float(row['grad_P'])
+
+            v_disk_SI = float(row['v_disk'])  # set by generate() in SI (m/s)
+
+            zone_label = "Self-Reg"
+
+        # ---- 5. gamma and f_thermal at the typical row -------------------------
+        if zone == "Self-Reg":
+            # generate() now computes these; read directly from the model row
+            gamma_val     = float(row['gamma'])
+            f_thermal_val = float(row['f_thermal'])
+        else:
+            P_rad = 4 * sigma_sb.value * Tc_SI**4 / (3 * c.value)
+            P_gas = rho_SI * k_B.value * Tc_SI / (self.mu * m_p.value)
+            gamma_val = 4.0/3.0 if P_rad > P_gas else 5.0/3.0
+
+            kappa_es = 0.04
+            kappa_kr = 6.4e18 * rho_SI * Tc_SI**(-3.5)
+            kappa_SI = kappa_es + kappa_kr
+            chi = (16 * gamma_val * (gamma_val - 1) * sigma_sb.value * Tc_SI**4
+                   / (3 * kappa_SI * rho_SI**2 * H_SI**2 * Omega_SI**2))
+            x_thermal = chi / (H_SI**2 * Omega_SI)
+            sqrt_halfx = np.sqrt(x_thermal / 2)
+            f_thermal_val = (sqrt_halfx + 1/gamma_val) / (sqrt_halfx + 1)
+
+        # ---- 6. Unit conversions (SI -> SpaceHub) ------------------------------
+        AU_m = 1.495978707e11
+        Msun_kg = 1.98847e30
+        year_s = 365.25636042 * 24 * 3600
+        T_unit = year_s / (2 * np.pi)
+
+        conv_length          = 1 / AU_m
+        conv_density         = AU_m**3 / Msun_kg
+        conv_pressure        = AU_m * T_unit**2 / Msun_kg
+        conv_velocity        = T_unit / AU_m
+        conv_viscosity       = T_unit / AU_m**2
+        conv_surface_density = AU_m**2 / Msun_kg
+
+        Rg_AU = self.gRad.to(u.m).value * conv_length
+
+        N = len(rvals)
+        ones = np.ones(N)
+        df = pd.DataFrame({
+            'R':          rvals * Rg_AU,
+            'R/Rg':       rvals,
+            'Tc':         Tc_SI    * ones,
+            'rho':        rho_SI   * conv_density         * ones,
+            'P':          P_SI     * conv_pressure        * ones,
+            'cs':         cs_SI    * conv_velocity        * ones,
+            'H':          H_SI     * conv_length          * ones,
+            'visc':       visc_SI  * conv_viscosity       * ones,
+            'Sigma':      Sigma_SI * conv_surface_density * ones,
+            'Q':          Q_val    * ones,
+            'grad_T':     grad_T   * ones,
+            'grad_Sigma': grad_Sigma * ones,
+            'grad_P':     grad_P   * ones,
+            'gamma':      gamma_val * ones,
+            'f_thermal':  f_thermal_val * ones,
+            'v_disk':     v_disk_SI  * conv_velocity * ones,
+            'zone':       [zone_label] * N,
+        })
+
+        self.model_spacehub = df
+        return df
+
+
+def powerlaw_cn08(
+    rvals,
+    M=1.0,
+    Sigma_0=1700.0,
+    h=0.05,
+    alpha=0.005,
+    mu=2.34,
+    outfile=None,
+):
+    """
+    Build a Cresswell & Nelson (2008) power-law disk table in SpaceHub units.
+
+    Locally-isothermal disk with constant aspect ratio H/r and Σ ∝ r^-0.5,
+    matching the disc setup described in Cresswell & Nelson (2008,
+    A&A 482, 677, doi:10.1051/0004-6361:20079178). Independent of the
+    full Shakura–Sunyaev solver in AGNDisk; intended as a clean baseline
+    for migration / e-i damping comparisons against published results.
+
+    Parameters
+    ----------
+    rvals : array_like or astropy.Quantity
+        Radii. Plain numbers are interpreted as AU.
+    M : float or astropy.Quantity, optional
+        Central mass; plain number interpreted as M☉. Default 1.0 M☉.
+    Sigma_0 : float, optional
+        Surface density at 1 AU in g/cm². Default 1700 (MMSN).
+    h : float, optional
+        Aspect ratio H/r (constant). Default 0.05 (CN08).
+    alpha : float, optional
+        Shakura–Sunyaev viscosity parameter. Only enters `visc`. Default 0.005.
+    mu : float, optional
+        Mean molecular weight (only enters `Tc`). Default 2.34 (PPD value).
+    outfile : str or pathlib.Path, optional
+        If given, write the resulting CSV to this path.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns in SpaceHub units (T = year/(2π)):
+        R [AU], R/Rg [-], Tc [K], rho [M☉/AU³], P [M☉/(AU·T²)],
+        cs [AU/T], H [AU], visc [AU²/T], Sigma [M☉/AU²], Q [-],
+        grad_T [-], grad_Sigma [-], grad_P [-], gamma [-], f_thermal [-],
+        v_disk [AU/T].
+    """
+    # Resolve inputs to plain numpy / SI scalars.
+    if isinstance(rvals, u.Quantity):
+        r_AU = np.asarray(rvals.to(u.AU).value, dtype=float)
+    else:
+        r_AU = np.asarray(rvals, dtype=float)
+    r_AU = np.atleast_1d(r_AU).ravel()
+
+    if isinstance(M, u.Quantity):
+        M_Msun = float(M.to(u.M_sun).value)
+    else:
+        M_Msun = float(M)
+
+    # SI unit constants (mirror the spacehub_pretab block).
+    AU_m    = 1.495978707e11
+    Msun_kg = 1.98847e30
+    year_s  = 365.25636042 * 24 * 3600
+    T_unit  = year_s / (2 * np.pi)
+    G_si    = G.si.value
+    c_si    = c.si.value
+    kB_si   = k_B.si.value
+    mp_si   = m_p.si.value
+
+    # Working values in SI.
+    r_si       = r_AU * AU_m
+    M_si       = M_Msun * Msun_kg
+    Sigma_0_si = Sigma_0 * 10.0                # 1 g/cm² = 10 kg/m²
+
+    vK   = np.sqrt(G_si * M_si / r_si)
+    Om   = vK / r_si
+    cs   = h * vK
+    H    = h * r_si
+    Sig  = Sigma_0_si * r_AU ** (-0.5)         # power-law referenced to 1 AU
+    rho  = Sig / (np.sqrt(2.0 * np.pi) * H)
+    P    = rho * cs**2                         # locally-isothermal EOS
+    Tc   = mu * mp_si * cs**2 / kB_si
+    Q    = cs * Om / (np.pi * G_si * Sig)
+    visc = alpha * cs * H
+
+    # Exact analytic log-gradients (defined as -d ln X / d ln R, matching
+    # disktab._log_gradient).
+    grad_T_val     = 1.0    # T   ∝ r^-1
+    grad_Sigma_val = 0.5    # Σ   ∝ r^-1/2
+    grad_P_val     = 2.5    # P   ∝ r^-5/2
+
+    # Sub-Keplerian gas velocity from radial pressure support:
+    #   v_phi^2 = vK^2 (1 + (cs/vK)^2 · d ln P / d ln R)
+    #          = vK^2 (1 - h² · grad_P)
+    v_disk = vK * np.sqrt(1.0 - h**2 * grad_P_val)
+
+    # R/Rg (Rg = GM/c²); large for stellar M but stored for column completeness.
+    Rg = G_si * M_si / c_si**2
+    R_over_Rg = r_si / Rg
+
+    # SI → SpaceHub conversions (same factors as spacehub_pretab).
+    conv_length          = 1.0 / AU_m
+    conv_density         = AU_m**3 / Msun_kg
+    conv_pressure        = AU_m * T_unit**2 / Msun_kg
+    conv_velocity        = T_unit / AU_m
+    conv_viscosity       = T_unit / AU_m**2
+    conv_surface_density = AU_m**2 / Msun_kg
+
+    N = r_AU.size
+    df = pd.DataFrame({
+        'R':          r_si * conv_length,
+        'R/Rg':       R_over_Rg,
+        'Tc':         Tc,
+        'rho':        rho * conv_density,
+        'P':          P * conv_pressure,
+        'cs':         cs * conv_velocity,
+        'H':          H * conv_length,
+        'visc':       visc * conv_viscosity,
+        'Sigma':      Sig * conv_surface_density,
+        'Q':          Q,
+        'grad_T':     np.full(N, grad_T_val),
+        'grad_Sigma': np.full(N, grad_Sigma_val),
+        'grad_P':     np.full(N, grad_P_val),
+        'gamma':      np.full(N, 1.0),
+        'f_thermal':  np.full(N, 0.0),
+        'v_disk':     v_disk * conv_velocity,
+    })
+
+    if outfile is not None:
+        df.to_csv(outfile, index=False)
+
+    return df
 
 
 if __name__ == "__main__":
