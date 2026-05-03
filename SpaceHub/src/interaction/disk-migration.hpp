@@ -22,6 +22,8 @@ License
  * @file typeI-migration.hpp
  *
  * Header file for Type I migration and eccentricity damping.
+ * 
+ * THIS IS THE CURRENT VERSION OF THE DISK FORCE IMPLEMENTATIONS AS OF 4/29/2026
  */
 
 #pragma once
@@ -45,11 +47,11 @@ namespace hub::force
     {
     public:
         struct DiskRow {
-            double R, R_Rg, Tc, rho, P, cs, H, visc, Sigma, Q, grad_T, grad_Sigma, grad_P, gamma, f_thermal;
+            double R, R_Rg, Tc, rho, P, cs, H, visc, Sigma, Q, grad_T, grad_Sigma, grad_P, gamma, f_thermal, v_disk;
         };
 
         struct DiskProps {
-            double Sigma, H, rho, Tc, cs, grad_T, grad_Sigma, grad_P, gamma, f_thermal;
+            double Sigma, H, rho, Tc, cs, grad_T, grad_Sigma, grad_P, gamma, f_thermal, v_disk;
         };
 
         constexpr static bool vel_dependent{true};
@@ -57,27 +59,26 @@ namespace hub::force
         static inline std::vector<DiskRow> disk_table;
         static inline bool initialized = false;
 
-        // Force toggle flags (must be set before running solver)
-        // Eventually re-work to automatically determine which to use based on orbital parameters, but keep manual overrides for testing purposes
-        static inline bool LoweccDamping_CN06 = false;
-        static inline bool CN06_ECC_DECOUPLED = false;
-        static inline bool CN06_MIG_DECOUPLED = false;
-        static inline bool migration_Jimenez = false;
-        static inline bool inclined_zhu = false;
-        static inline bool ensemble = false;
+  
 
 
         // Force-disable overrides — set to true to globally suppress a force.
         // These are user-facing controls for testing and debugging only.
         // Normal operation is governed by the orbital-regime switching logic (classify()).
+        //
+        // To use in a simulation, set these after including headers but before running:
+        //   force::DiskMigration::DISABLE_MIGRATION = true;
+        //   force::DiskMigration::DISABLE_E_DAMPING = true;
+        //   solver.run(args);  // uses updated settings
         static inline bool DISABLE_MIGRATION          = false;
         static inline bool DISABLE_I_DAMPING          = false;
         static inline bool DISABLE_E_DAMPING          = false;
         static inline bool DISABLE_DYNAMICAL_FRICTION = false;
         static inline bool DISABLE_AERODYNAMIC_DRAG   = false;
         static inline bool DISABLE_BONDI_HOYLE        = false;
-        static inline bool ignore_dynamical_friction  = false;  // suppresses the dyn-fric regime flag in classify()
-
+        static inline bool ignore_dynamical_friction  = false;  // suppresses the dyn-fric regime flag in classify() 
+        static inline bool use_cn08_calibration = false; //use 2.7+1.1\beta/2 instead of the JM17 C_I calibration
+        //static inline bool use_ppd_powerlaw = false;
         // details
         static inline double ecc_tol = 0.0001; //  below which is considered circular
         static inline double incl_tol = 0.001_deg; // below which is considered in-plane
@@ -117,22 +118,25 @@ namespace hub::force
                 char comma;
                 row.gamma = 5.0/3.0;      // default if columns missing
                 row.f_thermal = 1.0;
+                row.v_disk = 0.0;
                 ss >> row.R >> comma >> row.R_Rg >> comma >> row.Tc >> comma
                    >> row.rho >> comma >> row.P >> comma >> row.cs >> comma
                    >> row.H >> comma >> row.visc >> comma >> row.Sigma >> comma
                    >> row.Q >> comma >> row.grad_T >> comma >> row.grad_Sigma >> comma
                    >> row.grad_P;
-                // gamma and f_thermal are optional columns — only read if present.
+                // gamma, f_thermal, v_disk are optional columns — only read if present.
                 // Must save defaults before attempting extraction: operator>> overwrites
                 // the target to 0 on parse failure (e.g. if the next column is a string
                 // like "zone"), destroying the default set above.
-                double g_default = row.gamma, f_default = row.f_thermal;
+                double g_default = row.gamma, f_default = row.f_thermal, vd_default = row.v_disk;
                 if (ss >> comma >> row.gamma) {
                     ss >> comma >> row.f_thermal;
                     if (ss.fail()) row.f_thermal = f_default;
                 } else {
                     row.gamma = g_default;
                 }
+                if (ss >> comma >> row.v_disk) { /* parsed */ }
+                else row.v_disk = vd_default;
                 disk_table.push_back(row);
             }
             initialized = true;
@@ -140,7 +144,7 @@ namespace hub::force
 
         // Linear interpolation of each disk property independently as f(R)
         static DiskProps interp_all(double R) {
-            if (std::isnan(R) || R <= Rmin || R >= Rmax) return {0, 0, 0, 0, 0, 0, 0, 0, 5.0/3.0, 1.0};
+            if (std::isnan(R) || R <= Rmin || R >= Rmax) return {0, 0, 0, 0, 0, 0, 0, 0, 5.0/3.0, 1.0, 0.0};
 
             auto const& t = disk_table;
             auto it = std::lower_bound(t.begin(), t.end(), R,
@@ -159,7 +163,8 @@ namespace hub::force
                     lerp(t[i].grad_Sigma, t[i+1].grad_Sigma),
                     lerp(t[i].grad_P, t[i+1].grad_P),
                     lerp(t[i].gamma, t[i+1].gamma),
-                    lerp(t[i].f_thermal, t[i+1].f_thermal)};
+                    lerp(t[i].f_thermal, t[i+1].f_thermal),
+                    lerp(t[i].v_disk, t[i+1].v_disk)};
         }
 
         struct OrbitalRegime {
@@ -167,23 +172,7 @@ namespace hub::force
             bool retrograde, embedded, in_plane, dynamical_friction;
         };
 
-        /**
-         * @brief Classifica il regime orbitale di un corpo in base ai parametri orbitali e alle proprietà del disco.
-         *
-         * Determina quattro condizioni booleane:
-         *   - retrograde:         l'orbita è retrograda (inclinazione > π/2)
-         *   - embedded:           il corpo è immerso nel disco (sin(i) < H/R)
-         *   - in_plane:           l'orbita è sostanzialmente coplanare con il disco (incl < incl_tol)
-         *   - dynamical_friction: il regime di attrito dinamico è attivo — vero se l'orbita è retrograda,
-         *                         oppure se il corpo non è immerso (o l'eccentricità supera e_max)
-         *                         e ignore_dynamical_friction è falso.
-         *
-         * @param ecc          Eccentricità orbitale
-         * @param incl         Inclinazione orbitale (radianti)
-         * @param sin_i        Seno dell'inclinazione: sqrt(hx² + hy²) / |h|
-         * @param aspect_ratio Rapporto di aspetto del disco H/R alla posizione radiale corrente
-         * @return OrbitalRegime Struttura con i quattro flag booleani
-         */
+
         static OrbitalRegime classify(double ecc, double incl, double sin_i, double aspect_ratio) {
             bool retrograde         = (incl > consts::pi / 2.0);
             bool embedded           = (sin_i < aspect_ratio);
@@ -294,7 +283,9 @@ namespace hub::force
             //=========================CALCULATE SIMPLE PROPERTIES==================================
             
 
-            auto v_disk = disk_v(dr, m[0], grad_P, cs);
+            double v_disk_speed = props.v_disk;
+            auto v_disk = typename Particles::Vector{-v_disk_speed * dr.y / R_cyl,
+                                                      v_disk_speed * dr.x / R_cyl, 0.0};
             //double rho = rho_c * exp(-0.5 * (z * z) / (H * H)); //Gaussian density profile
             auto v_rel = dv - v_disk;
             auto v2 = dot(v_rel, v_rel);
@@ -302,15 +293,15 @@ namespace hub::force
             auto vmag = sqrt(v2);
 
             if (vmag < 1e-10) continue;
-
             double Omega_k = sqrt(consts::G * m[0] / (R_cyl * R_cyl * R_cyl));
+            double Omega_CN08 = v_disk_speed / R_cyl;
             double aspect_ratio = H / R_cyl;
             double e_tilde = ecc / aspect_ratio;
             double i_h = incl / aspect_ratio;
             double r2 = dot(dr, dr);
             double r_mag = sqrt(r2);
             double q = m[i] / m[0];
-            double t_wave = (m[0] / m[i]) * (m[0] / Sigma / a_orb / a_orb) * pow(aspect_ratio, 4) / Omega_k;
+            double t_wave = (m[0] / m[i]) * (m[0] / Sigma / a_orb / a_orb) * pow(aspect_ratio, 4) / Omega_CN08;
 
             //==================================================================================================================================================
             //                  ======FORCE ENSEMBLE SWITCHING MECHANISM======
@@ -343,11 +334,13 @@ namespace hub::force
                 //double t_e = (Q_e / 0.78) * (m[0] / m[i]) * (m[0] / (Sigma * a_orb * a_orb)) * pow(aspect_ratio, 4) * (1.0 + 0.25 * pow(e_tilde, 3)) / Omega_k;
                 double ecc_cn08 = (1 - 0.14 * pow(e_tilde, 2) + 0.06 * pow(e_tilde, 3) + 0.18 * e_tilde * pow(i_h, 2));
                 double t_e = (t_wave / 0.780) * ecc_cn08;
-
+                
                 
                 double vdotr = dot(dv, dr);
-                if (std::abs(vdotr) < 1e-9) {
-                    vdotr = std::copysign(1e-9, vdotr);
+                double p_orb = a_orb * (1.0 - ecc * ecc);
+                double vdotr_floor = r_mag * ecc * sqrt(u / p_orb) / 1e2;
+                if (std::abs(vdotr) < vdotr_floor) {
+                    vdotr = std::copysign(vdotr_floor, vdotr == 0.0 ? 1.0 : vdotr);
                 }
 
                 double T_bar = ecc * ecc * h_mag / (r_mag * (1.0 - ecc * ecc) * t_e);
@@ -363,7 +356,7 @@ namespace hub::force
 
 
             ////==================================================================================================================================================
-            //                          ==========Type I Migration Torque (JM17 lin_tot with PL00 eccentric correction factor)==========
+            //                          ==========Type I Migration Torque (JM17 lin_tot with ?)==========
             // intended case: embedded orbits with eccentricity less than 1.1H/r 
             
             //==================================================================================================================================================
@@ -374,11 +367,15 @@ namespace hub::force
                 double C_CR = (0.46 - 0.96 * grad_Sigma + 1.8 * grad_T) / gamma;
                 double C_I = C_L + C_CR;
 
+                if (use_cn08_calibration){
+                    //2/(2.7+1.1beta) = 1/C_I
+                    C_I = -(2.7 + 1.1 * grad_Sigma)/2.0;
+                }
                 
 
                 // Normalizing torque (Eq. 12): Gamma0 = q^2 * Sigma * R^4 * Omega^2 * h^-3
                 double Gamma0 = q * q * Sigma * R_cyl * R_cyl * R_cyl * R_cyl
-                              * Omega_k * Omega_k / (aspect_ratio * aspect_ratio * aspect_ratio);
+                              * Omega_k * Omega_k / (aspect_ratio * aspect_ratio * aspect_ratio); //IS THIS THE RIGHT OMEGA???
 
                 // Type I torque (Eq. 13)
                 double Gamma_I = C_I * aspect_ratio * Gamma0;
@@ -386,8 +383,8 @@ namespace hub::force
                 double P_e = (1.0 + pow(ecc / (2.25 * aspect_ratio), 1.2) + pow(ecc / (2.84 * aspect_ratio), 6.0))
                            / (1.0 - pow(ecc / (2.02 * aspect_ratio), 4.0));
                 //$$P(e) = \frac{1 + \left( \frac{e}{2.25 H/r} \right)^{1.2} + \left( \frac{e}{2.84 H/r} \right)^{6}}{1 - \left( \frac{e}{2.02 H/r} \right)^{4}}$$
-                double f_cn08_inv = 2.0 * (P_e + std::copysign(1.0, P_e) * (0.070 * i_h + 0.085 * pow(i_h, 4) - 0.080 * e_tilde * pow(i_h, 2)));
-                //$$f_{cn08}^{-1} =2\left[ P(e) + \frac{P(e)}{|P(e)|} \left\{ 0.070 \left( \frac{i}{H/r} \right) + 0.085 \left( \frac{i}{H/r} \right)^{4} - 0.080 \left( \frac{e}{H/r} \right) \left( \frac{i}{H/r} \right)^{2} \right\} \right]$$
+                double f_cn08_inv = (P_e + std::copysign(1.0, P_e) * (0.070 * i_h + 0.085 * pow(i_h, 4) - 0.080 * e_tilde * pow(i_h, 2)));
+                //$$f_{cn08}^{-1} =\left[ P(e) + \frac{P(e)}{|P(e)|} \left\{ 0.070 \left( \frac{i}{H/r} \right) + 0.085 \left( \frac{i}{H/r} \right)^{4} - 0.080 \left( \frac{e}{H/r} \right) \left( \frac{i}{H/r} \right)^{2} \right\} \right]$$
 
                 double Gamma_CN08 = Gamma_I * f_cn08_inv;
 
@@ -409,7 +406,7 @@ namespace hub::force
                 
                 if (incl < 1e-10) continue; //Should not get here anyway if auto-switching is enabled
 
-                //--------------------- Zhu+2019 inclination damping (eqs 16-17) ------
+                //--------------------- ?? cite equations ------
                 double incl_cn08 = (1 - 0.3 * pow(i_h, 2) + 0.24 * pow(i_h, 3) + 0.14 * pow(e_tilde, 2) * i_h);
                 double tau_I = (t_wave/0.544) * incl_cn08;
                 double tau_I_inv = 1/tau_I;
