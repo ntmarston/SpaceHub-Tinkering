@@ -76,26 +76,47 @@ namespace hub::force
         static inline bool DISABLE_DYNAMICAL_FRICTION = false;
         static inline bool DISABLE_AERODYNAMIC_DRAG   = false;
         static inline bool DISABLE_BONDI_HOYLE        = false;
-        static inline bool ignore_dynamical_friction  = false;  // suppresses the dyn-fric regime flag in classify() 
+        static inline bool ignore_dynamical_friction  = false;  // suppresses the dyn-fric regime flag in classify()
+        static inline bool always_use_dynamical_friction = false; // forces DF-only path; bypasses regime switching & all migration/damping
         static inline bool use_cn08_calibration = false; //use 2.7+1.1\beta/2 instead of the JM17 C_I calibration
+        static inline bool force_damping = false; //Always use i,e damping and migration, even if out of disk bounds
+        static inline bool mute_diagnostics = false;
         //static inline bool use_ppd_powerlaw = false;
         // details
         static inline double ecc_tol = 0.0001; //  below which is considered circular
         static inline double incl_tol = 0.001_deg; // below which is considered in-plane
-        // e_max = 1.0999 * h (PL00 stall threshold): beyond this migration torques vanish and dynamical friction takes over
+       
 
         
 
         static inline double Rmin;
         static inline double Rmax;
+        static inline std::string disk_filename;
+        static inline bool diagnostics_printed = false;
 
         /*
         ==================================================================================================================================================
                                             ========================HELPER METHOD IMPLEMENTATIONS======================
         ==================================================================================================================================================
         */
+        static void print_diagnostics() {
+            if (mute_diagnostics) return;
+            auto on_off = [](bool disabled) { return disabled ? "OFF" : "ON"; };
+            std::cout << "\n=== DiskMigration Configuration ===\n";
+            std::cout << "  Disk file         : " << disk_filename << "\n";
+            std::cout << "  Migration         : " << on_off(DISABLE_MIGRATION)          << "\n";
+            std::cout << "  E-damping         : " << on_off(DISABLE_E_DAMPING)          << "\n";
+            std::cout << "  I-damping         : " << on_off(DISABLE_I_DAMPING)          << "\n";
+            std::cout << "  Dynamical fric.   : " << on_off(DISABLE_DYNAMICAL_FRICTION) << "\n";
+            std::cout << "  Aerodynamic drag  : " << on_off(DISABLE_AERODYNAMIC_DRAG)   << "\n";
+            std::cout << "  Bondi-Hoyle       : " << on_off(DISABLE_BONDI_HOYLE)        << "\n";
+            std::cout << "  Torque cal.       : " << (use_cn08_calibration ? "CN08 (2.7+1.1*beta/2)" : "JM17 C_I") << "\n";
+            std::cout << "===================================\n\n";
+        }
+
         // Load pre-tabulated disk CSV before running solver
         static void init_from_file(const std::string& filename) {
+            disk_filename = filename;
             load_disk_data(filename);
             if (!disk_table.empty()) {
                 Rmin = disk_table.front().R;
@@ -178,6 +199,15 @@ namespace hub::force
             bool embedded           = (sin_i < aspect_ratio);
             bool in_plane           = (incl < incl_tol);
             bool dynamical_friction = retrograde || ((!embedded || (ecc >= 0.3)) && !ignore_dynamical_friction);
+            //Override for testing: bypass disk-bounds and dyn-fric checks, but
+            //leave in_plane based on actual inclination so i-damping turns off
+            //naturally once incl < incl_tol (otherwise it fights numerical
+            //precision indefinitely once inclination is damped below ~rtol).
+            if (force_damping){
+                retrograde = false;
+                embedded = true;
+                dynamical_friction = false;
+            }
             return {retrograde, embedded, in_plane, dynamical_friction};
         }
 
@@ -204,6 +234,10 @@ namespace hub::force
     {
         if (!initialized) {
             throw std::runtime_error("DiskMigration Error: Not initialized! Call DiskMigration::init_from_file() first.");
+        }
+        if (!diagnostics_printed) {
+            print_diagnostics();
+            diagnostics_printed = true;
         }
 
         size_t num = particles.number();
@@ -301,13 +335,16 @@ namespace hub::force
             double r2 = dot(dr, dr);
             double r_mag = sqrt(r2);
             double q = m[i] / m[0];
-            double t_wave = (m[0] / m[i]) * (m[0] / Sigma / a_orb / a_orb) * pow(aspect_ratio, 4) / Omega_CN08;
+            double t_wave = (m[0] / m[i]) * (m[0] / Sigma / a_orb / a_orb) * pow(aspect_ratio, 4) / Omega_k;
 
             //==================================================================================================================================================
             //                  ======FORCE ENSEMBLE SWITCHING MECHANISM======
             //==================================================================================================================================================
    
                 auto [retrograde, embedded, in_plane, dynamical_friction] = classify(ecc, incl, sin_i, aspect_ratio);
+                if (always_use_dynamical_friction) {
+                    retrograde = false; embedded = false; in_plane = false; dynamical_friction = true;
+                }
 
                 
                 
@@ -337,16 +374,21 @@ namespace hub::force
                 
                 
                 double vdotr = dot(dv, dr);
-                double p_orb = a_orb * (1.0 - ecc * ecc);
-                double vdotr_floor = r_mag * ecc * sqrt(u / p_orb) / 1e2;
-                if (std::abs(vdotr) < vdotr_floor) {
-                    vdotr = std::copysign(vdotr_floor, vdotr == 0.0 ? 1.0 : vdotr);
-                }
-
-                double T_bar = ecc * ecc * h_mag / (r_mag * (1.0 - ecc * ecc) * t_e);
-                double R_bar = -T_bar * h_mag / vdotr;
                 auto r_hat = dr * (1.0 / r_mag);
+                
+
+                /*
+                These are energy/semi-major axis conserving, not angular momentum-conserving. 
+                This prevents the e-damping force from reducing the semi-major axis at all, 
+                is only valid if the reduction of semi-major axis from eccentricity is incorporated in the migration component
+                
+                double T_bar = ecc * ecc * h_mag / (r_mag * (1.0 - ecc * ecc) * t_e); //INJECTS angular momentum at each step to keep sma constant
+                double R_bar = -T_bar * h_mag / vdotr;
+                
                 auto accel_e = r_hat * R_bar + cross(h_vec * (1.0 / h_mag), r_hat) * T_bar;
+                */
+                
+                auto accel_e = r_hat * (-2.0 * vdotr / t_e / r_mag);
 
                 acceleration[i] += accel_e;
                 acceleration[0] -= accel_e * q;
@@ -366,9 +408,10 @@ namespace hub::force
                 double C_L = (-2.34 + 0.1 * grad_Sigma - 1.5 * grad_T) * f_thermal;
                 double C_CR = (0.46 - 0.96 * grad_Sigma + 1.8 * grad_T) / gamma;
                 double C_I = C_L + C_CR;
+                
 
                 if (use_cn08_calibration){
-                    //2/(2.7+1.1beta) = 1/C_I
+                    // CN08 Eq.14: a_m = -u/t_m, so inward migration needs t_m > 0. Here Γ_I = C_I·h·Γ₀ with Γ₀ > 0, so inward needs C_I < 0 — sign flips relative to the CN08 timescale formula.
                     C_I = -(2.7 + 1.1 * grad_Sigma)/2.0;
                 }
                 
@@ -383,10 +426,10 @@ namespace hub::force
                 double P_e = (1.0 + pow(ecc / (2.25 * aspect_ratio), 1.2) + pow(ecc / (2.84 * aspect_ratio), 6.0))
                            / (1.0 - pow(ecc / (2.02 * aspect_ratio), 4.0));
                 //$$P(e) = \frac{1 + \left( \frac{e}{2.25 H/r} \right)^{1.2} + \left( \frac{e}{2.84 H/r} \right)^{6}}{1 - \left( \frac{e}{2.02 H/r} \right)^{4}}$$
-                double f_cn08_inv = (P_e + std::copysign(1.0, P_e) * (0.070 * i_h + 0.085 * pow(i_h, 4) - 0.080 * e_tilde * pow(i_h, 2)));
-                //$$f_{cn08}^{-1} =\left[ P(e) + \frac{P(e)}{|P(e)|} \left\{ 0.070 \left( \frac{i}{H/r} \right) + 0.085 \left( \frac{i}{H/r} \right)^{4} - 0.080 \left( \frac{e}{H/r} \right) \left( \frac{i}{H/r} \right)^{2} \right\} \right]$$
+                
+                double f_cn08 = P_e + (P_e/std::abs(P_e)) * (0.070 * i_h + 0.085 * pow(i_h, 4) - 0.080 * e_tilde * i_h * i_h);
 
-                double Gamma_CN08 = Gamma_I * f_cn08_inv;
+                double Gamma_CN08 = Gamma_I / f_cn08;
 
                 double mu = m[i] * m[0] / (m[i] + m[0]);
                 auto a_mig = cross(h_vec, dr) * (Gamma_CN08 / (mu * h_mag * r2));
@@ -406,15 +449,20 @@ namespace hub::force
                 
                 if (incl < 1e-10) continue; //Should not get here anyway if auto-switching is enabled
 
-                //--------------------- ?? cite equations ------
                 double incl_cn08 = (1 - 0.3 * pow(i_h, 2) + 0.24 * pow(i_h, 3) + 0.14 * pow(e_tilde, 2) * i_h);
                 double tau_I = (t_wave/0.544) * incl_cn08;
                 double tau_I_inv = 1/tau_I;
 
+                // CN08 Eq. 16: a_i = -(v_z / t_i) k_hat, with k_hat = disk-midplane normal (z_hat).
+                typename Particles::Vector accel_inc{0.0, 0.0, -dv.z * tau_I_inv};
+
+                acceleration[i] += accel_inc;
+                acceleration[0] -= accel_inc * q;
+
+                /* ---- Previous Gauss-inversion form kept for reference ----
                 // Line of nodes: n = Z_hat x h_vec = (-h_vec.y, h_vec.x, 0)
                 auto n_vec = typename Particles::Vector{-h_vec.y, h_vec.x, 0.0};
                 double n_mag = sqrt(n_vec.x * n_vec.x + n_vec.y * n_vec.y);
-
                 auto n_hat = n_vec * (1.0 / n_mag);
 
                 // R22: N_bar = |r x v| / (r_vec . n_hat) * (-I * tau_I_inv)
@@ -429,12 +477,12 @@ namespace hub::force
 
                     // N_bar acts along orbit normal: w_hat = h_vec / |h_vec|
                     auto w_hat = h_vec * (1.0 / h_mag);
-                    auto accel_inc = w_hat * N_bar;
+                    auto accel_inc_old = w_hat * N_bar;
 
-                    acceleration[i] += accel_inc;
-                    acceleration[0] -= accel_inc * q;
+                    acceleration[i] += accel_inc_old;
+                    acceleration[0] -= accel_inc_old * q;
                 }
-            
+                 */
             }
 
             
@@ -466,12 +514,12 @@ namespace hub::force
                     f_total += I * f_HL;
                 }
 
-                if (!DISABLE_AERODYNAMIC_DRAG) {
+                if (!DISABLE_AERODYNAMIC_DRAG && !always_use_dynamical_friction) {
                     double f_aero = consts::pi * r_eff * r_eff * rho * v2;
                     f_total += f_aero;
                 }
 
-                if (!DISABLE_BONDI_HOYLE) {
+                if (!DISABLE_BONDI_HOYLE && !always_use_dynamical_friction) {
                     f_total += f_HL / (1 + Mach * Mach);
                 }
 

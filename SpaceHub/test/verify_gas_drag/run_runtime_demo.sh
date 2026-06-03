@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
-# run_zengpan_reprod.sh – compile and run Zeng & Pan reproduction simulations.
+# run_runtime_demo.sh – compile and run runtime_demo_e0 and runtime_demo_e09
+#                       for a sweep of inclinations.
 #
-# Reproduces figures 9 (e=0.3) and 10 (e=0.7) from arXiv:2601.11925v2
-# using SG_01Edd.csv (?)
+# The C++ executables write their own .log files; this script captures
+# each process's stdout/stderr to .errorlog files instead.
 #
 # Overnight usage:
-#   cd SpaceHub/test/verify_gas_drag && nohup ./run_zengpan_reprod.sh > out/run_zengpan.log 2>&1 &
+#   cd SpaceHub/test/verify_gas_drag && nohup ./run_runtime_demo.sh > out/RuntimeDemo/run.log 2>&1 &
 #
 # Test usage (kills each sim after 30 s to verify file placement):
-#   ./run_zengpan_reprod.sh --test
+#   ./run_runtime_demo.sh --test
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-#INCLINATIONS=(90 105 120 135)
-INCLINATIONS=(0 70 135)
-N_WORKERS=2
+INCLINATIONS=(0 30 45 70 90 135 180)
+N_WORKERS=6
 TEST_MODE=false
-TIMEOUT=115200 # >32 hours
+TIMEOUT=14400 # 8 hours
 
 for arg in "$@"; do
     [[ "$arg" == "--test" ]] && TEST_MODE=true
@@ -34,19 +34,15 @@ echo "Started: $(date)"
 
 # ── Worker ────────────────────────────────────────────────────────────────────
 # run_one <exe> <inc> <outfile> <label>
-# Note: the C++ binary itself writes a CSV log to "${outfile%.dat}.log"
-# (time,step_size,system_time). The bash-captured stdout/stderr goes to a
-# separate "${outfile%.dat}.console.log" so the two do not clobber each other.
 run_one() {
     local exe="$1"
     local inc="$2"
     local outfile="$3"
     local label="$4"
-    local csvlog="${outfile%.dat}.log"
-    local console="${outfile%.dat}.console.log"
+    local errorlog="${outfile%.dat}.errorlog"
     local rc=0
 
-    timeout "$TIMEOUT" "${exe}" "${inc}" > "$console" 2>&1 || rc=$?
+    timeout "$TIMEOUT" "${exe}" "${inc}" > "$errorlog" 2>&1 || rc=$?
 
     # Exit 124 = timeout
     if [[ $rc -eq 124 ]]; then
@@ -54,53 +50,47 @@ run_one() {
             echo "[OK]   ${label}  i=${inc}°  (timed out as expected in test mode)"
         else
             echo "[TIMEOUT] ${label}  i=${inc}°  (exit=124)"
-            local dir
-            dir="$(dirname "$outfile")"
-            local base
-            base="$(basename "${outfile%.dat}")"
-            [[ -f "$outfile" ]] && mv "$outfile" "${dir}/TO_${base}.dat"
-            [[ -f "$csvlog"  ]] && mv "$csvlog"  "${dir}/TO_${base}.log"
-            [[ -f "$console" ]] && mv "$console" "${dir}/TO_${base}.console.log"
+            if [[ -f "$outfile" ]]; then
+                mv "$outfile" "$(dirname "$outfile")/TO_$(basename "$outfile")"
+            fi
         fi
         return
     fi
 
-    if [[ $rc -ne 0 ]] || grep -qi "reach max iter" "$console"; then
-        echo "[FAIL] ${label}  i=${inc}°  (exit=${rc})  →  ${console}"
-        local stem="${outfile%.dat}"
+    if [[ $rc -ne 0 ]] || grep -qi "reach max iter" "$errorlog"; then
+        echo "[FAIL] ${label}  i=${inc}°  (exit=${rc})  →  ${errorlog}"
         if [[ -f "$outfile" ]]; then
-            mv "$outfile" "${stem}_FAILED.dat"
+            mv "$outfile" "${outfile%.dat}_FAILED.dat"
         else
             printf "FAILED: simulation produced no output (exit=%d).\nSee: %s\n" \
-                "$rc" "$console" > "${stem}_FAILED.dat"
+                "$rc" "$errorlog" > "${outfile%.dat}_FAILED.dat"
         fi
-        [[ -f "$csvlog" ]] && mv "$csvlog" "${stem}_FAILED.log"
     else
         echo "[OK]   ${label}  i=${inc}°"
     fi
 }
 
 # ── Compile ───────────────────────────────────────────────────────────────────
-mkdir -p simulations/bin
 echo ""
 echo "=== Compiling ==="
-g++ -std=c++17 -O3 -pthread ZengLowEcc.cpp -o simulations/bin/ZengLowEcc \
-    && echo "  ZengLowEcc    OK" || { echo "  ZengLowEcc    FAILED"; exit 1; }
-g++ -std=c++17 -O3 -pthread ZengHighEcc.cpp -o simulations/bin/ZengHighEcc \
-    && echo "  ZengHighEcc   OK" || { echo "  ZengHighEcc   FAILED"; exit 1; }
+mkdir -p runtime_demo_out/bin
+g++ -std=c++17 -O3 -pthread runtime_demo_e0.cpp  -o runtime_demo_out/bin/runtime_demo_e0 \
+    && echo "  runtime_demo_e0   OK" || { echo "  runtime_demo_e0   FAILED"; exit 1; }
+g++ -std=c++17 -O3 -pthread runtime_demo_e09.cpp -o runtime_demo_out/bin/runtime_demo_e09 \
+    && echo "  runtime_demo_e09  OK" || { echo "  runtime_demo_e09  FAILED"; exit 1; }
 echo "=== Compilation complete ==="
 
-# ── Ensure output directories exist ──────────────────────────────────────────
-mkdir -p out/ZengLowEcc out/ZengHighEcc
+# ── Ensure output directory exists ───────────────────────────────────────────
+mkdir -p out/RuntimeDemo
 
 # ── Task list ─────────────────────────────────────────────────────────────────
 # Format: "exe|inc|outfile|label"
 TASKS=()
 for inc in "${INCLINATIONS[@]}"; do
-    TASKS+=("simulations/bin/ZengLowEcc|${inc}|out/ZengLowEcc/incl-${inc}.dat|ZengLow")
+    TASKS+=("runtime_demo_out/bin/runtime_demo_e0|${inc}|out/RuntimeDemo/incl-${inc}_ecc-0.0.dat|e0")
 done
 for inc in "${INCLINATIONS[@]}"; do
-    TASKS+=("simulations/bin/ZengHighEcc|${inc}|out/ZengHighEcc/incl-${inc}.dat|ZengHigh")
+    TASKS+=("runtime_demo_out/bin/runtime_demo_e09|${inc}|out/RuntimeDemo/incl-${inc}_ecc-0.9.dat|e09")
 done
 
 echo ""
@@ -124,11 +114,9 @@ echo ""
 echo "=== All simulations finished at $(date) ==="
 echo ""
 
-for dir in out/ZengLowEcc out/ZengHighEcc; do
-    n_ok=$(ls "${dir}"/*.dat 2>/dev/null | grep -cv FAILED || true)
-    n_fail=$(ls "${dir}"/*_FAILED.dat 2>/dev/null | wc -l || true)
-    echo "  ${dir}/  →  ${n_ok} OK,  ${n_fail} FAILED"
-    if (( n_fail > 0 )); then
-        ls "${dir}"/*_FAILED.dat 2>/dev/null | sed 's/^/    /'
-    fi
-done
+n_ok=$(ls out/RuntimeDemo/*.dat 2>/dev/null | grep -cv FAILED || true)
+n_fail=$(ls out/RuntimeDemo/*_FAILED.dat 2>/dev/null | wc -l || true)
+echo "  out/RuntimeDemo/  →  ${n_ok} OK,  ${n_fail} FAILED"
+if (( n_fail > 0 )); then
+    ls out/RuntimeDemo/*_FAILED.dat 2>/dev/null | sed 's/^/    /'
+fi

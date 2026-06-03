@@ -8,10 +8,10 @@ using namespace force;
 /*--------------------------------------------------New-----------------------------------------------------------*/
 // Newtonian gravity + tabulated disk model with dynamical friction ONLY
 // Uses pagn (Sirko-Goodman) disk model: le=0.5, alpha=0.1
-// Reproduces Zeng & Pan fig 9: e_ini=0.3, p_ini=300 Rg
+// Reproduces Zeng & Pan fig 10: e_ini=0.7, p_ini=300 Rg
 using f = Interactions<NewtonianGrav, DiskMigration>;
 
-using Solver = methods::Sym6<f, particles::SizeParticles>;
+using Solver = methods::Sym4<f, particles::SizeParticles>;
 /*----------------------------------------------------------------------------------------------------------------*/
 using Particle = Solver::Particle;
 using Scalar = Solver::Scalar;
@@ -28,17 +28,17 @@ int main(int argc, char** argv) {
         print(std::cout << "Usage: " << argv[0] << " <inclination_in_degrees>\n");
     }
 
-    // Load pagn-generated disk file (Sirko-Goodman, le=0.5, alpha=0.1)
-    DiskMigration::init_from_file("../../src/interaction/disk_tab/disk_ZengAndPan_pagn.csv");
+    // Load pagn-generated disk file
+    DiskMigration::init_from_file("../../src/interaction/disk_tab/SG_01Edd.csv");
 
     // Configure force toggles: ONLY dynamical friction enabled
     DiskMigration::DISABLE_MIGRATION          = true;
-    DiskMigration::DISABLE_E_DAMPING          = true;
     DiskMigration::DISABLE_I_DAMPING          = true;
     DiskMigration::DISABLE_DYNAMICAL_FRICTION = false;
-    DiskMigration::DISABLE_AERODYNAMIC_DRAG   = true;
-    DiskMigration::DISABLE_BONDI_HOYLE        = true;
+    DiskMigration::DISABLE_AERODYNAMIC_DRAG   = false;
+    DiskMigration::DISABLE_BONDI_HOYLE        = false;
     DiskMigration::ignore_dynamical_friction  = false;
+    DiskMigration::DISABLE_E_DAMPING = true;
 
     // Central AGN black hole and orbiting 30 Msun black hole
     Scalar m1 = 1e8_Ms;  // DiskModel assumes particle 0 is the central mass
@@ -46,10 +46,10 @@ int main(int argc, char** argv) {
 
     Scalar r1 = 2.0 * consts::G * m1 / (consts::C * consts::C);
 
-    // Orbital parameters: p_ini = 300 Rg, e=0.3
-    // a = p/(1-e^2) = 295.6/0.91 ≈ 325 AU
-    Scalar sma = 325_AU;
-    auto ecc = 0.3;
+    // Orbital parameters: p_ini = 300 Rg, e=0.7
+    // a = p/(1-e^2) = 295.6/0.51 ≈ 580 AU
+    Scalar sma = 580_AU;
+    auto ecc = 0.9;
 
     auto inclination = inclination_deg * 1_deg;
     auto longitude_of_ascending_node = 0_deg;
@@ -59,8 +59,8 @@ int main(int argc, char** argv) {
     // Schwarzschild radius for 30 Msun BH
     Scalar Rs_30Msun = 2.0 * consts::G * m2 / (consts::C * consts::C);
 
-    Particle p1{m1, r1};       // Central BH
-    Particle p2{m2, Rs_30Msun};      // 30 Msun BH
+    Particle p1{m1, r1};            // Central BH
+    Particle p2{m2, Rs_30Msun};     // 30 Msun BH
 
     auto orb = orbit::Elliptic(p1.mass, p2.mass, sma, ecc, inclination, longitude_of_ascending_node, argument_of_periapsis, true_anomaly);
 
@@ -70,9 +70,11 @@ int main(int argc, char** argv) {
     Solver solver{0, p1, p2};
 
     Solver::RunArgs args;
-    args.rtol = 1e-10;
+    args.rtol = 1e-9;
 
-    auto collision_detect = [](auto &ptc, auto h)
+    std::string exit_reason = "time_limit";
+
+    auto collision_detect = [&exit_reason](auto &ptc, auto h)
             {
                 size_t particle_num = ptc.number();
                 for (size_t i = 0; i < particle_num; ++i)
@@ -81,6 +83,7 @@ int main(int argc, char** argv) {
                     {
                         if (distance(ptc.pos(i), ptc.pos(j)) < ptc.radius(i) + ptc.radius(j))
                         {
+                            exit_reason = "collision";
                             return true;
                         }
                     }
@@ -90,18 +93,17 @@ int main(int argc, char** argv) {
 
     args.add_stop_condition(collision_detect);
 
-    
     // Stop when semi-major axis has shrunk by 50% from its initial value (a < 0.5 * sma_ini)
-    auto sma_shrink_stop = [sma, m1, m2](auto &ptc, auto h) {
+    auto sma_shrink_stop = [sma, m1, m2, &exit_reason](auto &ptc, auto h) {
         auto dr = ptc.pos(1) - ptc.pos(0);
         auto dv = ptc.vel(1) - ptc.vel(0);
         auto r = norm(dr);
         auto v2 = dot(dv, dv);
         auto eps = 0.5 * v2 - consts::G * (m1 + m2) / r;
         auto a_cur = -consts::G * (m1 + m2) / (2.0 * eps);
-        return a_cur < 0.5 * sma;
+        if (a_cur < 0.5 * sma) { exit_reason = "sma_shrink"; return true; }
+        return false;
     };
-    args.add_stop_condition(sma_shrink_stop);
 
     std::ofstream logfile;
     tools::Timer wall_timer;
@@ -110,17 +112,19 @@ int main(int argc, char** argv) {
         logfile << ptc.time() << "," << h << "," << wall_timer.get_time() << "\n";
     };
 
+    args.add_stop_condition(sma_shrink_stop);
+
     // t_stop = 1e15 M_bullet in geometrized units (G=c=1), converted to years:
     // T_M = G*M/c^3 = 4.9255e-6 s * 1e8 = 492.55 s = 1.561e-5 yr
     // => 1e15 * 1.561e-5 yr = 1.561e10 yr
-    auto stop_time = 1.561e8_year;
+    auto stop_time = 1e7_year;
     args.add_stop_condition(stop_time);
 
     // Build output filename with inclination
     std::ostringstream output_filename;
     std::ostringstream log_filename;
-    output_filename << "out/ZengLowEcc/incl-" << inclination_deg << ".dat";
-    log_filename << "out/ZengLowEcc/incl-" << inclination_deg << ".log";
+    output_filename << "out/RuntimeDemo/incl-" << inclination_deg << "_ecc-0.9" << ".dat";
+    log_filename << "out/RuntimeDemo/incl-" << inclination_deg << "_ecc-0.9" << ".log";
 
     logfile.open(log_filename.str());
     logfile << "time,step_size,system_time\n";
@@ -136,6 +140,7 @@ int main(int argc, char** argv) {
 
     double elapsed_time = timer.get_time();
 
+    print(std::cout << "Exit condition: " << exit_reason << "\n");
     print(std::cout << "Simulation complete in " << elapsed_time << "s with no errors!\n");
 
     return 0;
@@ -143,9 +148,7 @@ int main(int argc, char** argv) {
 
 
 
-// Commands to compile and run this simulation (starting from project root):
-// cd SpaceHub/test/verify_gas_drag
-// mkdir -p simulations/bin out/ZengLowEcc
-// g++ -std=c++17 -O3 -pthread ZengLowEcc.cpp -o simulations/bin/ZengLowEcc
-// ./simulations/bin/ZengLowEcc <inclination_in_degrees>
-// Example: ./simulations/bin/ZengLowEcc 20.0
+// Commands to compile and run this simulation (run from verify_gas_drag/):
+// g++ -std=c++17 -O3 -pthread runtime_demo_e09.cpp -o runtime_demo_out/bin/runtime_demo_e09
+// ./runtime_demo_out/bin/runtime_demo_e09 <inclination_in_degrees>
+// Example: ./runtime_demo_out/bin/runtime_demo_e09 45.0

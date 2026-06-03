@@ -9,7 +9,7 @@ using namespace force;
 // Newtonian gravity + tabulated disk model with dynamical friction ONLY
 // Uses pagn (Sirko-Goodman) disk model: le=0.5, alpha=0.1
 // Reproduces Zeng & Pan fig 10: e_ini=0.7, p_ini=300 Rg
-using f = Interactions<NewtonianGrav, DiskModel>;
+using f = Interactions<NewtonianGrav, DiskMigration>;
 
 using Solver = methods::Sym4<f, particles::SizeParticles>;
 /*----------------------------------------------------------------------------------------------------------------*/
@@ -29,12 +29,18 @@ int main(int argc, char** argv) {
     }
 
     // Load pagn-generated disk file
-    DiskModel::init_from_file("../../src/interaction/disk_tab/SG_01Edd.csv");
+    DiskMigration::init_from_file("../../src/interaction/disk_tab/SG_01Edd.csv");
 
     // Configure force toggles: ONLY dynamical friction enabled
-    DiskModel::enable_dynamical_friction = true;
-    DiskModel::enable_aerodynamic_drag = false;
-    DiskModel::enable_bondi_hoyle = false;
+    DiskMigration::DISABLE_MIGRATION          = true;
+    DiskMigration::DISABLE_E_DAMPING          = true;
+    DiskMigration::DISABLE_I_DAMPING          = true;
+
+    DiskMigration::DISABLE_DYNAMICAL_FRICTION = false;
+    
+    DiskMigration::DISABLE_AERODYNAMIC_DRAG   = true;
+    DiskMigration::DISABLE_BONDI_HOYLE        = true;
+    DiskMigration::ignore_dynamical_friction  = false;
 
     // Central AGN black hole and orbiting 30 Msun black hole
     Scalar m1 = 1e8_Ms;  // DiskModel assumes particle 0 is the central mass
@@ -102,6 +108,13 @@ int main(int argc, char** argv) {
     };
     args.add_stop_condition(sma_shrink_stop);
 
+    std::ofstream logfile;
+    tools::Timer wall_timer;
+
+    auto write_log = [&logfile, &wall_timer](auto &ptc, auto h) {
+        logfile << ptc.time() << "," << h << "," << wall_timer.get_time() << "\n";
+    };
+
     // t_stop = 1e15 M_bullet in geometrized units (G=c=1), converted to years:
     // T_M = G*M/c^3 = 4.9255e-6 s * 1e8 = 492.55 s = 1.561e-5 yr
     // => 1e15 * 1.561e-5 yr = 1.561e10 yr
@@ -110,9 +123,16 @@ int main(int argc, char** argv) {
 
     // Build output filename with inclination
     std::ostringstream output_filename;
+    std::ostringstream log_filename;
     output_filename << "out/ZengHighEcc/incl-" << inclination_deg << ".dat";
+    log_filename << "out/ZengHighEcc/incl-" << inclination_deg << ".log";
+
+    logfile.open(log_filename.str());
+    logfile << "time,step_size,system_time\n";
+    wall_timer.start();
 
     args.add_operation(TimeSlice(DefaultWriter(output_filename.str()), 0_year, stop_time, 10000));
+    args.add_operation(TimeSlice(write_log, 0_year, stop_time, 10000));
 
     tools::Timer timer;
     timer.start();
@@ -129,7 +149,9 @@ int main(int argc, char** argv) {
 
 
 
-// Commands to compile and run this simulation (run from verify_gas_drag/):
+// Commands to compile and run this simulation (starting from project root):
+// cd SpaceHub/test/verify_gas_drag
+// mkdir -p simulations/bin out/ZengHighEcc
 // g++ -std=c++17 -O3 -pthread ZengHighEcc.cpp -o simulations/bin/ZengHighEcc
 // ./simulations/bin/ZengHighEcc <inclination_in_degrees>
 // Example: ./simulations/bin/ZengHighEcc 20.0
