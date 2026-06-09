@@ -23,7 +23,7 @@ License
  *
  * Header file for Type I migration and eccentricity damping.
  * 
- * THIS IS THE CURRENT VERSION OF THE DISK FORCE IMPLEMENTATIONS AS OF 4/29/2026
+ * THIS IS DEPRECATED TO A TESTING ONLY VERSION 6/3/2026
  */
 
 #pragma once
@@ -445,7 +445,6 @@ namespace hub::force
             //==================================================================================================================================================
 
             if (!DISABLE_I_DAMPING && (!in_plane && embedded) && !dynamical_friction) {
-                //TODO need to add a condition in this loop to defer to dynamical friction if branch2 is activated
                 
                 if (incl < 1e-10) continue; //Should not get here anyway if auto-switching is enabled
 
@@ -460,22 +459,21 @@ namespace hub::force
                 acceleration[0] -= accel_inc * q;
 
                 /* ---- Previous Gauss-inversion form kept for reference ----
-                // Line of nodes: n = Z_hat x h_vec = (-h_vec.y, h_vec.x, 0)
+                 Line of nodes: n = Z_hat x h_vec = (-h_vec.y, h_vec.x, 0)
                 auto n_vec = typename Particles::Vector{-h_vec.y, h_vec.x, 0.0};
                 double n_mag = sqrt(n_vec.x * n_vec.x + n_vec.y * n_vec.y);
                 auto n_hat = n_vec * (1.0 / n_mag);
 
-                // R22: N_bar = |r x v| / (r_vec . n_hat) * (-I * tau_I_inv)
+                 R22: N_bar = |r x v| / (r_vec . n_hat) * (-I * tau_I_inv)
                 double r_dot_nhat = dr.x * n_hat.x + dr.y * n_hat.y + dr.z * n_hat.z;
 
                 if (H > 1e-10) {
-                // Clamp |r_dot_nhat| to H (scale height) to prevent divergence at nodes
-                // Below H, the 2D disk-planet interaction formalism breaks down
-                double r_dot_nhat_clamped = (r_dot_nhat >= 0)
-                    ? std::max(r_dot_nhat, H) : std::min(r_dot_nhat, -H);
+                 Clamp |r_dot_nhat| to H (scale height) to prevent divergence at nodes
+                 Below H, the 2D disk-planet interaction formalism breaks down
+                double r_dot_nhat_clamped = (r_dot_nhat >= 0) ? std::max(r_dot_nhat, H) : std::min(r_dot_nhat, -H);
                     double N_bar = (h_mag / r_dot_nhat_clamped) * (-incl * tau_I_inv);
 
-                    // N_bar acts along orbit normal: w_hat = h_vec / |h_vec|
+                     N_bar acts along orbit normal: w_hat = h_vec / |h_vec|
                     auto w_hat = h_vec * (1.0 / h_mag);
                     auto accel_inc_old = w_hat * N_bar;
 
