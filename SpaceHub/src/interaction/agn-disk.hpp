@@ -23,7 +23,7 @@ License
  *
  * Header file for Type I migration and eccentricity damping.
  * 
- * THIS IS THE CURRENT VERSION OF THE DISK FORCE IMPLEMENTATIONS AS OF 6/3/2026
+ * THIS IS THE CURRENT VERSION OF THE DISK FORCE IMPLEMENTATIONS AS OF 6/10/2026
  */
 
 #pragma once
@@ -120,10 +120,9 @@ namespace hub::force
                    >> row.H >> comma >> row.visc >> comma >> row.Sigma >> comma
                    >> row.Q >> comma >> row.grad_T >> comma >> row.grad_Sigma >> comma
                    >> row.grad_P;
-                // gamma, f_thermal, v_disk are optional columns — only read if present.
-                // Must save defaults before attempting extraction: operator>> overwrites
-                // the target to 0 on parse failure (e.g. if the next column is a string
-                // like "zone"), destroying the default set above.
+                // gamma, f_thermal, v_disk are "optional" columns
+                // Save defaults before attempting load from file: operator >> overwrites
+                
                 double g_default = row.gamma, f_default = row.f_thermal, vd_default = row.v_disk;
                 if (ss >> comma >> row.gamma) {
                     ss >> comma >> row.f_thermal;
@@ -148,7 +147,7 @@ namespace hub::force
             }
         }
 
-        // Linear interpolation of each disk property independently as f(R)
+        // Linear interpolation of each disk property f independently as f(R)
         static DiskProps interp_all(double R) {
             if (std::isnan(R) || R <= Rmin || R >= Rmax) return {0, 0, 0, 0, 0, 0, 0, 0, 5.0/3.0, 1.0, 0.0};
 
@@ -228,11 +227,10 @@ namespace hub::force
                         * Omega_k * Omega_k / (aspect_ratio * aspect_ratio * aspect_ratio);
 
             // Net Type I torque (GGS24 Eq. 13): Gamma_I = C_I * (H/R) * Gamma0 = C_I * q^2*Sigma*R^4*Omega^2*h^-2.
-            // This is the standard TTW02 net torque; for C_I = -(2.7+1.1*beta)/2 it equals the CN08 torque.
+            // This is the standard T&W net torque, for C_I = -(2.7+1.1*beta)/2 it equals the CN08 torque.
             // Applied below as a_m = -v/t_m, it reproduces CN08 Eq. 13 exactly: t_m = L/|Gamma_I| = 2*t_wave/(2.7+1.1*beta)*h^-2.
-            // NB convention: CN08's t_m = L/Gamma (the timescale in a_m=-v/t_m); GGS24's t_mig = L/(2*Gamma) is the
-            // semi-major-axis e-folding time -a/adot = t_m/2 (since L ∝ sqrt(a)). The two differ by 2 by definition,
-            // not by a bug -- don't "fix" the factor of 2.
+            
+            // NB: CN08 and JM17 have different definitions of timescales, which are off by a factor of 2
             double Gamma_I = C_I * aspect_ratio * Gamma0;
 
             double P_e = (1.0 + pow(ecc / (2.25 * aspect_ratio), 1.2) + pow(ecc / (2.84 * aspect_ratio), 6.0))

@@ -348,7 +348,7 @@ std::vector<bool> test_regime_switching() {
     push(ecc_override);
 
     // ============================================================================================
-    // Part B: the boolean SELECTS the right force set -- checked end-to-end through add_acc_to.
+    // Part B: the boolean *selects* the right force set -- checked end-to-end through add_acc_to.
     // The mock disk has no v_disk column -> v_disk = 0 -> v_rel = v[1] - v[0]. Pure gas drag is
     // exactly anti-parallel to v_rel, whereas the type I force-set is not collinear with v_rel.
     // ============================================================================================
