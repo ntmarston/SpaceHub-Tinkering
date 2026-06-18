@@ -3,11 +3,33 @@ from astropy.constants import G, c
 import numpy as np
 from numpy import pi
 from math import gamma as Gamma
-from scipy.integrate import quad
+from scipy.special import betainc, beta as sp_beta
 from datetime import datetime, timezone
 import itertools
 import argparse
 import h5py
+
+# =============================================================================
+# BETA / closed-form version of compute_DCs.py
+# -----------------------------------------------------------------------------
+# The Merritt "standard integrals" F_n, E_n are evaluated here in *closed form*
+# via the incomplete Beta function instead of per-cell scipy.integrate.quad.
+#
+# On the bound domain v_f in [0, v_esc] the integrand reduces to a pure power of
+# (v_esc^2 - v_f^2), and the substitution t = v_f/v_esc turns each integral into
+# an incomplete Beta function (proof: closed_form_proof.md). With
+#     p = gamma - 3/2 ,   a_n = (n+1)/2 ,   b = p+1 = gamma - 1/2 ,
+#     K = 1/2 * A_f * phi0^(-p) * 2^(-p)   (constant per slab),
+# the integrals are
+#     F_n = K * v_esc^(2p+1) * x^(-n) * B(a_n,b) * I_{x^2}(a_n,b)
+#     E_n = K * v_esc^(2p+1) * x^(-n) * B(a_n,b) * [1 - I_{x^2}(a_n,b)]
+# where x = v/v_esc, B is the complete Beta and I the regularized incomplete
+# Beta (scipy.special.beta / betainc). The (r, x) table separates into an
+# r-factor times an x-shape, so each slab is two outer products -- no loop, no
+# quadrature. This subsumes the earlier per-slab constant hoisting, astropy
+# removal from the hot path, and v_esc de-duplication.
+# =============================================================================
+
 
 def f(M, r, v, mf, gamma_bw, r_inf):
     """Distribution function in terms of r, v. Merritt 3.49"""
@@ -16,24 +38,75 @@ def f(M, r, v, mf, gamma_bw, r_inf):
     Af = (3-gamma_bw)/8 * np.sqrt(2)/np.sqrt(pi**5)  * (Gamma(gamma_bw+1) / Gamma(gamma_bw - 1/2)) * (M/mf) * (phi0**(3/2) / (G*M)**3)
     return Af * (np.abs(Energy)/phi0)**(gamma_bw-3/2)
 
-def _standard_integrand_EF(n, M, r, vf, v, mf, gamma_bw, r_inf):
-    """Private helper method for functions E and F. f is evaluated at field-star speed vf."""
-    return (vf/v)**n * f(M, r, vf, mf, gamma_bw, r_inf)
+
+def _Af(M, mf, gamma_bw, r_inf):
+    """Distribution-function normalization A_f (Merritt 3.49). Constant per slab."""
+    phi0 = G*M / r_inf
+    return (3-gamma_bw)/8 * np.sqrt(2)/np.sqrt(pi**5) * (Gamma(gamma_bw+1) / Gamma(gamma_bw - 1/2)) * (M/mf) * (phi0**(3/2) / (G*M)**3)
+
+
+def _K(M, mf, gamma_bw, r_inf):
+    """Per-slab scalar prefactor K = 1/2 * A_f * phi0^(-p) * 2^(-p), p = gamma - 3/2."""
+    phi0 = G*M / r_inf
+    p = gamma_bw - 1.5
+    return 0.5 * _Af(M, mf, gamma_bw, r_inf) * phi0**(-p) * 2.0**(-p)
+
+
+def _F_shape(n, x, gamma_bw):
+    """Dimensionless v-shape of F_n: x^(-n) * B(a,b) * I_{x^2}(a,b)."""
+    a = (n + 1) / 2
+    b = gamma_bw - 0.5
+    return x**(-n) * sp_beta(a, b) * betainc(a, b, x**2)
+
+
+def _E_shape(n, x, gamma_bw):
+    """Dimensionless v-shape of E_n: x^(-n) * B(a,b) * [1 - I_{x^2}(a,b)]."""
+    a = (n + 1) / 2
+    b = gamma_bw - 0.5
+    return x**(-n) * sp_beta(a, b) * (1.0 - betainc(a, b, x**2))
+
 
 def E(n, M, r, v, mf, gamma_bw, r_inf):
-    """ 'Standard' form integral used in diffusion coefficient calculation. Merritt 5.56a"""
-    vu = v.unit
-    v_esc = np.sqrt(2*G*M/r).to(vu).value
-    gu = _standard_integrand_EF(n, M, r, v, v, mf, gamma_bw, r_inf).decompose().unit
-    result, _ = quad(lambda vf: _standard_integrand_EF(n, M, r, vf*vu, v, mf, gamma_bw, r_inf).to_value(gu), v.to_value(vu), v_esc)
-    return result * gu * vu
+    """ 'Standard' form integral used in diffusion coefficient calculation. Merritt 5.56a.
+
+    Closed-form (incomplete Beta) evaluation; exact equivalent of the quadrature
+    version on the bound domain v <= v_esc. Returns an astropy Quantity."""
+    p = gamma_bw - 1.5
+    v_esc = np.sqrt(2 * G * M / r)
+    x = (v / v_esc).decompose().value
+    return _K(M, mf, gamma_bw, r_inf) * v_esc**(2*p + 1) * _E_shape(n, x, gamma_bw)
+
 
 def F(n, M, r, v, mf, gamma_bw, r_inf):
-    """ 'Standard' form integral used in diffusion coefficient calculation. Merritt 5.56b"""
-    vu = v.unit
-    gu = _standard_integrand_EF(n, M, r, v, v, mf, gamma_bw, r_inf).decompose().unit
-    result, _ = quad(lambda vf: _standard_integrand_EF(n, M, r, vf*vu, v, mf, gamma_bw, r_inf).to_value(gu), 0, v.to_value(vu))
-    return result * gu * vu
+    """ 'Standard' form integral used in diffusion coefficient calculation. Merritt 5.56b.
+
+    Closed-form (incomplete Beta) evaluation; exact equivalent of the quadrature
+    version on the bound domain v <= v_esc. Returns an astropy Quantity."""
+    p = gamma_bw - 1.5
+    v_esc = np.sqrt(2 * G * M / r)
+    x = (v / v_esc).decompose().value
+    return _K(M, mf, gamma_bw, r_inf) * v_esc**(2*p + 1) * _F_shape(n, x, gamma_bw)
+
+
+def _slab_tables(M, r_vals, v_norm, mf, gamma_bw, r_inf, F_nat):
+    """Vectorized closed-form F2, F4, E1 over the (r, v_norm) grid.
+
+    Returns plain-float ndarrays (in F_nat units), each of shape
+    (len(r_vals), len(v_norm)). The table factorizes as
+        F_n[i, j] = r_factor[i] * shape_n[j]
+    so each array is a single np.outer -- no Python loop over cells, no quad.
+    """
+    p = gamma_bw - 1.5
+    # r-dependent prefactor K * v_esc^(2p+1), converted once to F_nat units.
+    v_esc = np.sqrt(2 * G * M / r_vals)                       # Quantity vector over r
+    r_factor = (_K(M, mf, gamma_bw, r_inf) * v_esc**(2*p + 1)).to_value(F_nat)
+
+    x = v_norm                                               # x = v/v_esc, dimensionless
+    F2 = np.outer(r_factor, _F_shape(2, x, gamma_bw))
+    F4 = np.outer(r_factor, _F_shape(4, x, gamma_bw))
+    E1 = np.outer(r_factor, _E_shape(1, x, gamma_bw))
+    return F2, F4, E1
+
 
 def sigma2(M, r, gamma_bw):
     """1D velocity dispersion of stars in the NSC"""
@@ -94,6 +167,9 @@ def _progress(slab_i, n_slabs, frac, width=40):
 def compute(out_path, rv_table_len, M_exps=[5,6,7,8], m_star_vals = [0.3], gamma_vals=[7/4], r_inf_scaled_vals = [0.5, 1], Rmin = 10, Rmax = 1e5):
     """Pre-tabulate the Merritt standard integrals F2, F4, E1 over an (r, v) grid for every (M, m_star, gamma, r_inf) combo and dump one slab each into a single HDF5 file (SpaceHub natural units).
 
+    BETA: uses the closed-form (incomplete Beta) evaluation via `_slab_tables`,
+    producing each slab as vectorized outer products rather than per-cell quad.
+
     out_path           where to write the .h5
     rv_table_len       grid size; tables are square (rv_table_len x rv_table_len)
     M_exps             central BH masses as log10(M / Msun)
@@ -115,7 +191,7 @@ def compute(out_path, rv_table_len, M_exps=[5,6,7,8], m_star_vals = [0.3], gamma
             # ---- root metadata ----
             h5.attrs["description"] = "Merritt standard integrals F_n, E_n for a Bahcall-Wolf NSC"
             h5.attrs["created"] = datetime.now(timezone.utc).isoformat()
-            h5.attrs["generated_by"] = "compute_DCs.py(v0.1)"
+            h5.attrs["generated_by"] = "compute_DCs_beta.py(closed-form v1)"
             h5.attrs["unit_system"] = "SpaceHub natural: G=1, length=AU, mass=Msun, time=yr/(2pi)"
             h5.attrs["length_unit"] = "AU"
             h5.attrs["mass_unit"] = "Msun"
@@ -137,18 +213,10 @@ def compute(out_path, rv_table_len, M_exps=[5,6,7,8], m_star_vals = [0.3], gamma
                 r_vals = np.geomspace(Rmin, Rmax, rv_table_len) * Rg.to(u.pc)
                 r_AU = r_vals.to_value(u.AU)
 
-                F2arr = np.empty((rv_table_len, rv_table_len)) #creates empty/unitialized 2d np.ndarray w/ shape rv_table_len x rv_table_len
-                F4arr = np.empty((rv_table_len, rv_table_len))
-                E1arr = np.empty((rv_table_len, rv_table_len))
+                # ---- closed-form slab: F2, F4, E1 as vectorized outer products ----
+                F2arr, F4arr, E1arr = _slab_tables(M, r_vals, v_norm, m_star, gamma, r_inf, F_nat)
 
-                for i, r in enumerate(r_vals):
-                    v_esc = np.sqrt(2 * G * M / r).to(u.km / u.s)
-                    for j, x in enumerate(v_norm):
-                        v = x * v_esc   # physical velocity at this (r, x)
-                        F2arr[i, j] = F(2, M, r, v, m_star, gamma, r_inf).to_value(F_nat)
-                        F4arr[i, j] = F(4, M, r, v, m_star, gamma, r_inf).to_value(F_nat)
-                        E1arr[i, j] = E(1, M, r, v, m_star, gamma, r_inf).to_value(F_nat)
-                    _progress(slab_i + 1, len(combos), (i + 1) / rv_table_len)
+                _progress(slab_i + 1, len(combos), (slab_i + 1) / len(combos))
 
                 # ---- write this slab ----
                 g = h5.create_group(f"slab_{slab_i:04d}")
@@ -173,14 +241,14 @@ def compute(out_path, rv_table_len, M_exps=[5,6,7,8], m_star_vals = [0.3], gamma
         print(f"Wrote {len(combos)} slabs to {out_path}")
     except Exception as e:
         raise Exception(f"Compute failed, exception occurred: {e.with_traceback(None)}")
-        
+
 
     return 0
 
 
 def _parse_args():
-    p = argparse.ArgumentParser(description="Pre-tabulate Merritt F2/F4/E1 slabs to a single HDF5 file.")
-    p.add_argument("--out-path", default="dc_tables.h5", help="output HDF5 file")
+    p = argparse.ArgumentParser(description="Pre-tabulate Merritt F2/F4/E1 slabs to a single HDF5 file (BETA, closed-form).")
+    p.add_argument("--out-path", default="dc_tables_beta.h5", help="output HDF5 file")
     p.add_argument("--rv-table-len", type=int, default=25, help="grid size; tables are square")
     p.add_argument("--M-exps", type=int, nargs="+", default=[5, 6, 7, 8], help="central BH masses as log10(M/Msun)")
     p.add_argument("--m-star-vals", type=float, nargs="+", default=[0.3], help="field-star masses [Msun]")
@@ -209,15 +277,15 @@ if __name__ == "__main__":
 ====EXAMPLE COMMAND TO RUN FROM TERMINAL=====
 cd disktab/diffusion_coeffs
 
-python compute_DCs.py \
-  --out-path dc_table.h5 \
+python compute_DCs_beta.py \
+  --out-path dc_table_beta.h5 \
   --rv-table-len 1000 \
   --M-exps 5 6 7 8\
   --m-star-vals 0.3 \
   --gamma-vals 1.75 \
   --r-inf-scaled-vals 1.0 \
   --Rmin 10 \
-  --Rmax 1e5
+  --Rmax 1e6
 
 
 """
