@@ -76,3 +76,4 @@ temp_math.ipynb
 disktab/diffusion_coeffs/read_hdf5
 disktab/diffusion_coeffs/closed_form_proof.md
 .gitignore
+disktab/diffusion_coeffs/read_hdf5.cpp
