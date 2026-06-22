@@ -66,6 +66,9 @@ simulations/*
 !simulations/**/*.cpp
 !simulations/*.cpp
 
+# Regen scripts
+/regen_*.sh
+
 # misc/unsorted
 SpaceHub/src/interaction/disk-model.hpp.interp_backup
 CLAUDE.md
