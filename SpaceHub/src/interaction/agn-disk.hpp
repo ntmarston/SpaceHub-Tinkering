@@ -62,7 +62,8 @@ namespace hub::force
         static inline std::vector<DiskRow> disk_table;
         static inline bool initialized = false;
         static inline bool diagnostics_printed = false;
-
+        //=================Debug options==========
+        static inline bool keplerian_disk_vel = false; //use keplerian velocity instead of sub-kep disk gas velocity
 
         /*==================OPTIONS===================*/
         static inline bool mute_diagnostics = false;
@@ -192,14 +193,14 @@ namespace hub::force
                                   double vdotr, double r_mag, const Vec &r_hat) {
             double ecc_cn08 = (1 - 0.14 * pow(e_tilde, 2) + 0.06 * pow(e_tilde, 3) + 0.18 * e_tilde * pow(i_h, 2));
             double t_e = (t_wave / 0.780) * ecc_cn08;
-            return (-2.0 * vdotr / t_e / r_mag) * r_hat; //equivalent to CN08 Eq. 15
+            return (-2.0 * vdotr / t_e / r_mag / r_mag) * r_mag * r_hat; //CN08 Eq. 15, todo add dr to sig
         }
 
         template <typename Vec>
         static Vec accel_inc_damp(double e_tilde, double i_h, double t_wave, double dvz) {
             double incl_corr_factor = (1 - 0.3 * pow(i_h, 2) + 0.24 * pow(i_h, 3) + 0.14 * pow(e_tilde, 2) * i_h);
             double t_i = (t_wave / 0.544) * incl_corr_factor;
-            // CN08 Eq. 16: a_i = -(v_z / t_i) k_hat, with k_hat = disk-midplane normal (z_hat).
+            // CN08 Eq. 16: a_i = -(v_z / t_i) k_hat, with k_hat = direction normal to disk plane (here z_hat).
             double accel_i_scalar = -dvz / t_i;
             return Vec{0.0, 0.0, accel_i_scalar};
         }
@@ -209,7 +210,7 @@ namespace hub::force
                                    double Sigma, double R_cyl, double Omega_k, double aspect_ratio,
                                    double ecc, double e_tilde, double i_h, double q,
                                    double m_i, double m_0, double h_mag, double r2,
-                                   const Vec &h_vec, const Vec &dr) {
+                                   const Vec &h_vec, const Vec &dr, const Vec &dv) {
             double C_I;
             if (use_JM17_calibration) {
             double C_L = (-2.34 + 0.1 * grad_Sigma - 1.5 * grad_T) * f_thermal;
@@ -241,7 +242,8 @@ namespace hub::force
             double Gamma_CN08 = Gamma_I / f_cn08;
 
             double mu = m_i * m_0 / (m_i + m_0);
-            return cross(h_vec, dr) * (Gamma_CN08 / (m_i * h_mag * r2));
+            double j = mu * h_mag;
+            return  - dv * abs(Gamma_CN08) / j;
         }
 
         // Gas drag acceleration on body i: gas dynamical friction (+ optional aerodynamic drag
@@ -250,27 +252,29 @@ namespace hub::force
         static Vec accel_gas_drag(double rho, double cs, double m_i, double r_eff,
                                   double vmag, double v2, double I_factor, double Mach,
                                   const Vec &v_rel) {
-            if (vmag < 1e-10) return Vec{0.0, 0.0, 0.0};   // manual guard: no relative velocity -> no drag
-            double cs2 = cs * cs;
-            double f_HL = 4 * consts::pi * consts::G * consts::G * m_i * m_i * rho / cs2;
-            double f_total = I_factor * f_HL;              // gas dynamical friction
+            if (vmag < 1e-10) return Vec{0.0, 0.0, 0.0};   // manual guard: prevent ostriker's built in singularity
+            double f_HL = 4 * consts::pi * consts::G * consts::G * m_i * m_i * rho / cs /cs;
+            double f_total = I_factor * f_HL;              // ostriker gas dynamical friction
             if (secondary_gas_forces) {
                 f_total += consts::pi * r_eff * r_eff * rho * v2;   // aerodynamic drag
                 f_total += f_HL / (1 + Mach * Mach);                // Bondi-Hoyle-Littleton drag
             }
-            return (-f_total / vmag / m_i) * v_rel;        // drag acceleration, opposes relative motion
+            return (-f_total / vmag / m_i) * v_rel;       
         }
 
+        
         // Embedded (Type I) regime test, angle-space: i < i_max AND e < e_max.
         // i_max / e_max default to 1.5*(H/R) and 4*(H/R); the type_i_*_max statics override when > 0.
         // Because incl in [0, pi] and i_max is a small prograde angle, retrograde / i>90 deg orbits
         // are always excluded (they can never be in the Type I regime).
-        // NOTE THIS CURRENTLY USES THE SMALL ANGLE APPROXIMATION WITH [sin(i) ~ i] AND MIGHT NEED TO BE CHANGED LATER
+        // todo NOTE THIS CURRENTLY USES THE SMALL ANGLE APPROXIMATION WITH [sin(i) ~ i] AND MIGHT NEED TO BE CHANGED LATER
         static bool is_typeI_regime(double incl, double ecc, double aspect_ratio) {
             double i_max = (type_i_inclination_max > 0.0) ? type_i_inclination_max : 1.5 * aspect_ratio;
             double e_max = (type_i_eccentricity_max > 0.0) ? type_i_eccentricity_max : 4.0 * aspect_ratio;
             return (incl < i_max) && (ecc < e_max);
         }
+
+
 
         template <typename Particles>
         static void add_acc_to(Particles const &particles, typename Particles::VectorArray &acceleration);
@@ -354,7 +358,6 @@ namespace hub::force
                     grad_Sigma = props.grad_Sigma, grad_P = props.grad_P,
                     gamma = props.gamma, f_thermal = props.f_thermal;
 
-            
 
             //=========================CALCULATE PROPERTIES==================================
                 
@@ -364,11 +367,10 @@ namespace hub::force
                                                     v_disk_speed * dr.x / R_cyl, 0.0};
             //double rho = rho_c * exp(-0.5 * (z * z) / (H * H)); //Gaussian density profile
             auto v_rel = dv - v_disk;
-            auto v2 = dot(v_rel, v_rel);
+            auto vrel2 = dot(v_rel, v_rel);
             auto cs2 = props.cs * props.cs;
-            auto vmag = sqrt(v2);
+            auto vrel_mag = sqrt(vrel2);
 
-            if (vmag < 1e-10) continue;
             double Omega_k = sqrt(consts::G * m[0] / (R_cyl * R_cyl * R_cyl));
             double Omega_CN08 = v_disk_speed / R_cyl;
             double aspect_ratio = H / R_cyl;
@@ -396,7 +398,7 @@ namespace hub::force
                 auto accel_e = accel_ecc_damp(e_tilde, i_h, t_wave, vdotr, r_mag, r_hat);
 
                 acceleration[i] += accel_e;
-                acceleration[0] -= accel_e * mass_ratio; 
+                //acceleration[0] -= accel_e * mass_ratio; 
 
                 /*====================== Inclination Damping (CN08) ======================*/
 
@@ -404,23 +406,27 @@ namespace hub::force
                 auto accel_inc = accel_inc_damp<typename Particles::Vector>(e_tilde, i_h, t_wave, dv.z);
 
                 acceleration[i] += accel_inc;
-                acceleration[0] -= accel_inc * mass_ratio;
+                //acceleration[0] -= accel_inc * mass_ratio;
 
                 /*====================== Migration Torque (CN08 or JM17) ======================*/
                 auto a_mig = accel_migration(grad_Sigma, grad_T, f_thermal, gamma, Sigma, R_cyl,
                                                 Omega_k, aspect_ratio, ecc, e_tilde, i_h, mass_ratio,
-                                                m[i], m[0], h_mag, r2, h_vec, dr);
+                                                m[i], m[0], h_mag, r2, h_vec, dr, dv);
 
                 acceleration[i] += a_mig;
-                acceleration[0] -= mass_ratio * a_mig;
+                //acceleration[0] -= mass_ratio * a_mig;
 
                 
             }
 
             else // if not in type I enabled regime
             {
-                auto r_eff = std::max(r[i], consts::G * m[i] / (v2 + cs2));
-                auto Mach = vmag / cs;
+                if (dr.z > H)
+                {
+                    rho = 0.0;
+                }
+                auto r_eff = std::max(r[i], consts::G * m[i] / (vrel2 + cs2));
+                auto Mach = vrel_mag / cs;
 
                 double I = 0;
 
@@ -437,9 +443,9 @@ namespace hub::force
                     I = connect(Mach);
                 }
 
-                auto a_drag = accel_gas_drag(rho, cs, m[i], r_eff, vmag, v2, I, Mach, v_rel);
+                auto a_drag = accel_gas_drag(rho, cs, m[i], r_eff, vrel_mag, vrel2, I, Mach, v_rel);
                 acceleration[i] += a_drag;
-                acceleration[0] -= a_drag * mass_ratio;
+                //acceleration[0] -= a_drag * mass_ratio;
 
             }
             
