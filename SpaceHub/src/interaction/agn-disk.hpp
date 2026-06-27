@@ -303,47 +303,47 @@ namespace hub::force
         for (size_t i = 1; i < num; ++i)
         {
             
-            auto dr = p[i] - p[0]; // Position relative to the central mass
-            auto dv = v[i] - v[0]; // Velocity relative to the central mass
-            double vdotr = dot(dv, dr);
-            double r2 = dot(dr, dr);
-            double r_mag = sqrt(r2);
-            auto r_hat = dr * (1.0 / r_mag);
-            double R_cyl = sqrt(dr.x * dr.x + dr.y * dr.y);
-            double z = dr.z;
-            auto u = consts::G * (m[0] + m[i]); //gravitational parameter
-            auto [a_orb, ecc] = orbit::calc_a_e(u, dr, dv); //yihan built in method
-            auto h_vec = cross(dr, dv); //specific angular momentum
-            double h_mag = norm(h_vec); //magnitude of specific angular momentum
-            double incl = acos(h_vec.z / h_mag); //inclination
+            auto dr = p[i] - p[0]; // cn08_ecc, cn08_incl, cn08_mig, JM17_mig, gdf, aero
+            auto dv = v[i] - v[0]; // cn08_ecc, cn08_incl, cn08_mig, JM17_mig, gdf, aero
+            double vdotr = dot(dv, dr); // cn08_ecc
+            double r2 = dot(dr, dr); // cn08_ecc, cn08_mig, JM17_mig
+            double r_mag = sqrt(r2); // cn08_ecc
+            auto r_hat = dr * (1.0 / r_mag); // cn08_ecc
+            double R_cyl = sqrt(dr.x * dr.x + dr.y * dr.y); // cn08_ecc, cn08_incl, cn08_mig, JM17_mig, gdf, aero
+            double z = dr.z; // DC
+            auto u = consts::G * (m[0] + m[i]); // cn08_ecc, cn08_incl, cn08_mig, JM17_mig
+            auto [a_orb, ecc] = orbit::calc_a_e(u, dr, dv); // cn08_ecc, cn08_incl, cn08_mig, JM17_mig
+            auto h_vec = cross(dr, dv); // cn08_ecc, cn08_incl, cn08_mig, JM17_mig
+            double h_mag = norm(h_vec); // cn08_ecc, cn08_incl, cn08_mig, JM17_mig
+            double incl = acos(h_vec.z / h_mag); // cn08_ecc, cn08_incl, cn08_mig, JM17_mig
 
 
             //==================================================================================
             // Dynamical friction functions and statics - credit Yihan
 
             //These are velocity dependent and therefore need to be in the for loop
-            static auto I_sup = [](double M, double logR) { return (0.5 * log(1 - 1 / M / M) + logR) / M / M; };
-            static auto I_sub = [](double M) { return (0.5 * log((1 + M) / (1 - M)) - M) / M / M; };
-            static auto dIdM_sup = [](double M, double logR) {
+            static auto I_sup = [](double M, double logR) { return (0.5 * log(1 - 1 / M / M) + logR) / M / M; }; // gdf
+            static auto I_sub = [](double M) { return (0.5 * log((1 + M) / (1 - M)) - M) / M / M; }; // gdf
+            static auto dIdM_sup = [](double M, double logR) { // gdf
                 return (-2 * logR + 1 / (M * M - 1) - log(1 - 1 / M / M)) / M / M / M;
             };
-            static auto dIdM_sub = [](double M) {
+            static auto dIdM_sub = [](double M) { // gdf
                 return (M * M * M + (1 - M * M) * log((1 + M) / (1 - M)) - 2 * M) / (M * M * M * (M * M - 1));
             };
 
-            static constexpr double logR = 3.0;
-            static const double eps = 1.0 / std::exp(2.0 * logR / 3.0);
-            static const double x1 = 1 - eps;
-            static const double x2 = 1 + eps;
-            static const double y1 = I_sub(x1);
-            static const double y2 = I_sup(x2, logR);
-            static const double k1 = dIdM_sub(x1);
-            static const double k2 = dIdM_sup(x2, logR);
-            static const double a = k1 * (x2 - x1) - (y2 - y1);
-            static const double b = -k2 * (x2 - x1) + (y2 - y1);
+            static constexpr double logR = 3.0; // gdf
+            static const double eps = 1.0 / std::exp(2.0 * logR / 3.0); // gdf
+            static const double x1 = 1 - eps; // gdf
+            static const double x2 = 1 + eps; // gdf
+            static const double y1 = I_sub(x1); // gdf
+            static const double y2 = I_sup(x2, logR); // gdf
+            static const double k1 = dIdM_sub(x1); // gdf
+            static const double k2 = dIdM_sup(x2, logR); // gdf
+            static const double a = k1 * (x2 - x1) - (y2 - y1); // gdf
+            static const double b = -k2 * (x2 - x1) + (y2 - y1); // gdf
 
-            static auto tt = [](double M) { return (M - x1) / (x2 - x1); };
-            static auto connect = [](double M) {
+            static auto tt = [](double M) { return (M - x1) / (x2 - x1); }; // gdf
+            static auto connect = [](double M) { // gdf
                 double t = tt(M);
                 return (1 - t) * y1 + y2 * t + (1 - t) * t * (t * b + (1 - t) * a);
             };
@@ -351,36 +351,47 @@ namespace hub::force
 
             if (R_cyl <= Rmin || R_cyl > Rmax) continue; //Out of disk condition
 
-            auto props = interp_all(R_cyl);
+            auto props = interp_all(R_cyl); // cn08_ecc, cn08_incl, cn08_mig, JM17_mig, gdf, aero
+            auto props_a = interp_all(a_orb); // DC
 
-            double Sigma = props.Sigma, H = props.H, rho = props.rho,
-                    Tc = props.Tc, cs = props.cs, grad_T = props.grad_T,
-                    grad_Sigma = props.grad_Sigma, grad_P = props.grad_P,
-                    gamma = props.gamma, f_thermal = props.f_thermal;
+            double Sigma = props.Sigma;      // cn08_ecc, cn08_incl, cn08_mig, JM17_mig
+            double H = props.H;              // cn08_ecc, cn08_incl, cn08_mig, JM17_mig, gdf
+            double rho = props.rho;          // gdf, aero
+            double Tc = props.Tc;            // DC
+            double cs = props.cs;            // gdf, aero
+            double grad_T = props.grad_T;    // cn08_mig, JM17_mig
+            double grad_Sigma = props.grad_Sigma; // cn08_mig, JM17_mig
+            double grad_P = props.grad_P;    // DC
+            double gamma = props.gamma;      // JM17_mig
+            double f_thermal = props.f_thermal; // JM17_mig
+            double Sigma_a = props_a.Sigma, H_a = props_a.H, rho_a = props_a.rho,
+                    Tc_a = props_a.Tc, cs_a = props_a.cs, grad_T_a = props_a.grad_T,
+                    grad_Sigma_a = props_a.grad_Sigma, grad_P_a = props_a.grad_P,
+                    gamma_a = props_a.gamma, f_thermal_a = props_a.f_thermal;
 
 
-            //=========================CALCULATE PROPERTIES==================================
+            //=========================CALCULATE PROPERTIES at r_p ==================================
                 
 
-            double v_disk_speed = props.v_disk;
+            double v_disk_speed = props.v_disk; // gdf, aero
             auto v_disk = typename Particles::Vector{-v_disk_speed * dr.y / R_cyl,
-                                                    v_disk_speed * dr.x / R_cyl, 0.0};
+                                                    v_disk_speed * dr.x / R_cyl, 0.0}; // gdf, aero
             //double rho = rho_c * exp(-0.5 * (z * z) / (H * H)); //Gaussian density profile
-            auto v_rel = dv - v_disk;
-            auto vrel2 = dot(v_rel, v_rel);
-            auto cs2 = props.cs * props.cs;
-            auto vrel_mag = sqrt(vrel2);
+            auto v_rel = dv - v_disk; // gdf, aero
+            auto vrel2 = dot(v_rel, v_rel); // gdf, aero
+            auto cs2 = props.cs * props.cs; // gdf, aero
+            auto vrel_mag = sqrt(vrel2); // gdf, aero
 
-            double Omega_k = sqrt(consts::G * m[0] / (R_cyl * R_cyl * R_cyl));
-            double Omega_CN08 = v_disk_speed / R_cyl;
-            double aspect_ratio = H / R_cyl;
-            double e_tilde = ecc / aspect_ratio;
-            double i_h = incl / aspect_ratio;
+            double Omega_k = sqrt(consts::G * m[0] / (R_cyl * R_cyl * R_cyl)); // cn08_ecc, cn08_incl, cn08_mig, JM17_mig
+            double Omega_CN08 = v_disk_speed / R_cyl; // DC
+            double aspect_ratio = H / R_cyl; // cn08_ecc, cn08_incl, cn08_mig, JM17_mig
+            double e_tilde = ecc / aspect_ratio; // cn08_ecc, cn08_incl, cn08_mig, JM17_mig
+            double i_h = incl / aspect_ratio; // cn08_ecc, cn08_incl, cn08_mig, JM17_mig
 
-            double mass_ratio = m[i] / m[0]; // q << 1
-            double t_wave = (m[0] / m[i]) * (m[0] / Sigma / a_orb / a_orb) * pow(aspect_ratio, 4) / Omega_k;
+            double mass_ratio = m[i] / m[0]; // cn08_mig, JM17_mig
+            double t_wave = (m[0] / m[i]) * (m[0] / Sigma / a_orb / a_orb) * pow(aspect_ratio, 4) / Omega_k; // cn08_ecc, cn08_incl, cn08_mig, JM17_mig
 
-            bool in_typeI_regime = is_typeI_regime(incl, ecc, aspect_ratio);
+            bool in_typeI_regime = is_typeI_regime(incl, ecc, aspect_ratio); // cn08_ecc, cn08_incl, cn08_mig, JM17_mig, gdf, aero
             //CN08 incorporating gradual switch to dynamical friction at e,i >> h/r allows looser criteria than strict h/r cut-offs
 
 
@@ -395,7 +406,7 @@ namespace hub::force
 
                 /*====================== Eccentricity Damping (CN08) ======================*/
 
-                auto accel_e = accel_ecc_damp(e_tilde, i_h, t_wave, vdotr, r_mag, r_hat);
+                auto accel_e = accel_ecc_damp(e_tilde, i_h, t_wave, vdotr, r_mag, r_hat); // cn08_ecc
 
                 acceleration[i] += accel_e;
                 //acceleration[0] -= accel_e * mass_ratio; 
@@ -403,7 +414,7 @@ namespace hub::force
                 /*====================== Inclination Damping (CN08) ======================*/
 
 
-                auto accel_inc = accel_inc_damp<typename Particles::Vector>(e_tilde, i_h, t_wave, dv.z);
+                auto accel_inc = accel_inc_damp<typename Particles::Vector>(e_tilde, i_h, t_wave, dv.z); // cn08_incl
 
                 acceleration[i] += accel_inc;
                 //acceleration[0] -= accel_inc * mass_ratio;
@@ -411,7 +422,7 @@ namespace hub::force
                 /*====================== Migration Torque (CN08 or JM17) ======================*/
                 auto a_mig = accel_migration(grad_Sigma, grad_T, f_thermal, gamma, Sigma, R_cyl,
                                                 Omega_k, aspect_ratio, ecc, e_tilde, i_h, mass_ratio,
-                                                m[i], m[0], h_mag, r2, h_vec, dr, dv);
+                                                m[i], m[0], h_mag, r2, h_vec, dr, dv); // cn08_mig, JM17_mig
 
                 acceleration[i] += a_mig;
                 //acceleration[0] -= mass_ratio * a_mig;
@@ -425,10 +436,10 @@ namespace hub::force
                 {
                     rho = 0.0;
                 }
-                auto r_eff = std::max(r[i], consts::G * m[i] / (vrel2 + cs2));
-                auto Mach = vrel_mag / cs;
+                auto r_eff = std::max(r[i], consts::G * m[i] / (vrel2 + cs2)); // gdf, aero
+                auto Mach = vrel_mag / cs; // gdf
 
-                double I = 0;
+                double I = 0; // gdf
 
                 if (Mach >= 1 + eps) {
                     I = (0.5 * log(1 - 1 / (Mach * Mach)) + logR) / (Mach * Mach);
@@ -443,7 +454,7 @@ namespace hub::force
                     I = connect(Mach);
                 }
 
-                auto a_drag = accel_gas_drag(rho, cs, m[i], r_eff, vrel_mag, vrel2, I, Mach, v_rel);
+                auto a_drag = accel_gas_drag(rho, cs, m[i], r_eff, vrel_mag, vrel2, I, Mach, v_rel); // gdf, aero
                 acceleration[i] += a_drag;
                 //acceleration[0] -= a_drag * mass_ratio;
 
